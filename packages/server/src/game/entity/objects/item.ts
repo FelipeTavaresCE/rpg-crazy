@@ -16,6 +16,8 @@ interface RawData {
     [key: string]: ItemData;
 }
 
+const itemData: RawData = { ...rawData, ...engineItemData } as RawData;
+
 export default class Item extends Entity {
     private data: ItemData;
 
@@ -105,7 +107,7 @@ export default class Item extends Entity {
         // Prevent invalid count values.
         this.count = Utils.sanitizeNumber(this.count);
 
-        this.data = { ...rawData, ...engineItemData }[key] as ItemData;
+        this.data = itemData[key];
 
         if (!this.data) {
             log.error(`[Item] Could not find data for ${key}.`);

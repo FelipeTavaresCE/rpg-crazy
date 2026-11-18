@@ -12,7 +12,7 @@ export interface SocketBonus {
     undeadDamage?: number;
 }
 
-const catalog = items as Record<string, { type: string; bonus?: SocketBonus }>;
+const catalog = items as { [key: string]: { type: string; bonus?: SocketBonus } };
 
 export function socketCard(
     equipment: SocketableItem,
@@ -33,10 +33,7 @@ export function socketCard(
     return { ...equipment, cards };
 }
 
-export function calculateCardAndRelicBonuses(
-    cards: string[],
-    relics: string[]
-): SocketBonus {
+export function calculateCardAndRelicBonuses(cards: string[], relics: string[]): SocketBonus {
     let result: SocketBonus = {};
 
     for (let key of [...cards, ...relics]) {

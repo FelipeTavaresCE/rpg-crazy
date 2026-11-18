@@ -52,10 +52,10 @@ export interface PlayerInfo {
     autoHuntSnapshot?: OfflineHuntSnapshot;
     autoHuntReport?: OfflineHuntReport;
     autoHuntRules?: AutoHuntRule[];
-    weaponMastery?: Record<string, { level: number; experience: number }>;
-    regionKillCounts?: Record<string, number>;
+    weaponMastery?: { [key: string]: { level: number; experience: number } };
+    regionKillCounts?: { [key: string]: number };
     autoRecycleRarities?: Array<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>;
-    socketedCards?: Record<string, string[]>;
+    socketedCards?: { [key: string]: string[] };
     relics?: string[];
     resetToken?: ResetToken;
 }

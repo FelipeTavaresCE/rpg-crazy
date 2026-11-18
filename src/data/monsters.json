@@ -7,7 +7,7 @@
         "hitPoints": 32,
         "attack": 3,
         "defense": 1,
-        "card": "moss_wolf_card"
+        "card": "moss_slime_card"
     },
     "moss_wolf": {
         "name": "Lobo Musgoso",
@@ -28,7 +28,7 @@
         "attack": 45,
         "defense": 28,
         "boss": true,
-        "card": "moss_wolf_card",
+        "card": "rotten_root_elder_card",
         "relic": "relic_of_the_ancient_root"
     },
     "crypt_guardian": {
@@ -49,7 +49,7 @@
         "hitPoints": 460,
         "attack": 34,
         "defense": 25,
-        "card": "mist_guardian_card"
+        "card": "crypt_apparition_card"
     },
     "gray_lord": {
         "name": "Lorde Cinzento",
@@ -60,7 +60,7 @@
         "attack": 78,
         "defense": 50,
         "boss": true,
-        "card": "mist_guardian_card",
+        "card": "gray_lord_card",
         "relic": "relic_of_the_gray_lord"
     }
 }

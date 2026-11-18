@@ -28,14 +28,14 @@ export interface EconomyResult {
     regionKillCount: number;
 }
 
-const rarityValues: ItemRarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
-const itemData = items as Record<string, LootItemData>;
-const monsterData = monsters as Record<string, { card: string; relic?: string }>;
-const cardKeys = [...new Set(Object.values(monsterData).map((monster) => monster.card))];
-const relicKeys = Object.keys(itemData).filter((key) => itemData[key]?.type === 'relic');
-const legendaryKeys = Object.keys(itemData).filter(
-    (key) => itemData[key]?.rarity === 'legendary' && itemData[key]?.globalAnnouncement
-);
+const rarityValues = new Set<ItemRarity>(['common', 'uncommon', 'rare', 'epic', 'legendary']),
+    itemData = items as { [key: string]: LootItemData },
+    monsterData = monsters as { [key: string]: { card: string; relic?: string } },
+    cardKeys = [...new Set(Object.values(monsterData).map((monster) => monster.card))],
+    relicKeys = Object.keys(itemData).filter((key) => itemData[key]?.type === 'relic'),
+    legendaryKeys = Object.keys(itemData).filter(
+        (key) => itemData[key]?.rarity === 'legendary' && itemData[key]?.globalAnnouncement
+    );
 
 export function isPortadorKill(regionKillCount: number): boolean {
     return regionKillCount > 0 && regionKillCount % 100 === 0;
@@ -51,7 +51,11 @@ export function rollEconomyDrops(
 
     if (isPortadorKill(regionKillCount)) {
         portadorKills = 1;
-        drops.push({ key: 'relic_fragment', count: 1 + Math.floor(random() * 3), rarity: 'common' });
+        drops.push({
+            key: 'relic_fragment',
+            count: 1 + Math.floor(random() * 3),
+            rarity: 'common'
+        });
     }
 
     if (random() < (portadorKills ? 0.02 : 0.0002) && relicKeys.length > 0) {
@@ -64,7 +68,7 @@ export function rollEconomyDrops(
         drops.push({ key, count: 1, rarity: itemData[key]!.rarity });
     }
 
-    if (random() < 0.000002 && legendaryKeys.length > 0) {
+    if (random() < 0.000_002 && legendaryKeys.length > 0) {
         let key = legendaryKeys[Math.floor(random() * legendaryKeys.length)]!;
         drops.push({
             key,
@@ -84,7 +88,7 @@ export function recycleDrops(
     drops: LootDrop[],
     settings: AutoRecycleSettings
 ): { kept: LootDrop[]; recycled: LootDrop[] } {
-    let selected = new Set(settings.rarities.filter((rarity) => rarityValues.includes(rarity))),
+    let selected = new Set(settings.rarities.filter((rarity) => rarityValues.has(rarity))),
         kept: LootDrop[] = [],
         recycled: LootDrop[] = [];
 
@@ -95,16 +99,18 @@ export function recycleDrops(
         }
 
         let value = Math.max(1, itemData[drop.key]?.scrapValue ?? 1);
-        recycled.push({
-            key: 'arcane_dust',
-            count: value * drop.count,
-            rarity: 'common'
-        });
-        recycled.push({
-            key: 'temper_fragments',
-            count: Math.max(1, Math.ceil(value / 2)) * drop.count,
-            rarity: 'common'
-        });
+        recycled.push(
+            {
+                key: 'arcane_dust',
+                count: value * drop.count,
+                rarity: 'common'
+            },
+            {
+                key: 'temper_fragments',
+                count: Math.max(1, Math.ceil(value / 2)) * drop.count,
+                rarity: 'common'
+            }
+        );
     }
 
     return { kept, recycled };

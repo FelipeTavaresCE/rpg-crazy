@@ -15,6 +15,7 @@ export interface OfflineHuntReport {
     lootCollected: number;
     lootOverflow: number;
     reason: string;
+    portadorKills?: number;
     legendaryAnnouncements?: string[];
 }
 

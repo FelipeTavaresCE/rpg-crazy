@@ -15,7 +15,7 @@ export interface RefineResult {
     chance: number;
 }
 
-export const REFINE_CHANCES: Readonly<Record<number, number>> = {
+export const REFINE_CHANCES: Readonly<{ [key: number]: number }> = {
     1: 1,
     2: 1,
     3: 1,
@@ -36,7 +36,14 @@ export function refineItem(
     let targetLevel = item.refineLevel + 1,
         chance = REFINE_CHANCES[targetLevel];
 
-    if (chance === undefined || item.refineLevel < 0 || item.isScarred)
+    if (
+        chance === undefined ||
+        item.refineLevel < 0 ||
+        item.isScarred ||
+        !Number.isFinite(roll) ||
+        roll < 0 ||
+        roll >= 1
+    )
         return { success: false, item: { ...item }, materials: { ...materials }, chance: 0 };
 
     let temperCost = targetLevel;
@@ -53,12 +60,18 @@ export function refineItem(
     return {
         success,
         item: nextItem,
-        materials: { auroraJewels: materials.auroraJewels - 1, temperFragments: materials.temperFragments - temperCost },
+        materials: {
+            auroraJewels: materials.auroraJewels - 1,
+            temperFragments: materials.temperFragments - temperCost
+        },
         chance
     };
 }
 
-export function repairScar(item: RefinableItem, purifiedRelics: number): {
+export function repairScar(
+    item: RefinableItem,
+    purifiedRelics: number
+): {
     item: RefinableItem;
     purifiedRelics: number;
 } {

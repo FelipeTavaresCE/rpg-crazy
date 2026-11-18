@@ -19,10 +19,13 @@ import rawMobData from '../../../../../data/mobs.json';
 import dropTables from '../../../../../data/tables.json';
 import engineItemData from '../../../../../../../src/data/items.json';
 import engineMonsterData from '../../../../../../../src/data/monsters.json';
-import { simulateOfflineLoot } from '../../../../../../../src/engine/OfflineSimulator';
-import { calculateCardAndRelicBonuses } from '../../../../../../../src/systems/CardAndRelicSystem';
-import { awardWeaponMastery, masteryEfficiency } from '../../../../../../../src/systems/MasterySystem';
-import { recycleDrops } from '../../../../../../../src/systems/LootAndEconomy';
+import { simulateOfflineLoot } from '../../../../../../../src/engine/offline-simulator';
+import { calculateCardAndRelicBonuses } from '../../../../../../../src/systems/card-and-relic-system';
+import {
+    awardWeaponMastery,
+    masteryEfficiency
+} from '../../../../../../../src/systems/mastery-system';
+import { recycleDrops } from '../../../../../../../src/systems/loot-and-economy';
 import Formulas from '../../../../info/formulas';
 import { getPvEDamage } from '../../../../info/pve-formula';
 
@@ -84,8 +87,8 @@ import type {
     OfflineHuntReport,
     OfflineHuntSnapshot
 } from '@kaetram/common/network/impl/autohunt';
-import type { LootDrop, ItemRarity } from '../../../../../../../src/systems/LootAndEconomy';
-import type { MasteryProgress } from '../../../../../../../src/systems/MasterySystem';
+import type { LootDrop, ItemRarity } from '../../../../../../../src/systems/loot-and-economy';
+import type { MasteryProgress } from '../../../../../../../src/systems/mastery-system';
 
 type KillCallback = (character: Character) => void;
 type NPCTalkCallback = (npc: NPC) => void;
@@ -145,9 +148,9 @@ export default class Player extends Character {
     public autoHuntSnapshot?: OfflineHuntSnapshot;
     public autoHuntReport?: OfflineHuntReport;
     public weaponMastery: MasteryProgress = {};
-    public regionKillCounts: Record<string, number> = {};
+    public regionKillCounts: { [key: string]: number } = {};
     public autoRecycleRarities: ItemRarity[] = [];
-    public socketedCards: Record<string, string[]> = {};
+    public socketedCards: { [key: string]: string[] } = {};
     public relics: string[] = [];
 
     // Player info
@@ -1080,7 +1083,7 @@ export default class Player extends Character {
                 Object.values(this.socketedCards).flat(),
                 this.relics
             ),
-            rawMonsters = engineMonsterData as Record<string, { family: string }>,
+            rawMonsters = engineMonsterData as { [key: string]: { family: string } },
             weightedCardBonus =
                 (socketBonuses.attack ?? 0) +
                 mobs.reduce((total, mob) => {
@@ -1227,9 +1230,9 @@ export default class Player extends Character {
                           attribute: snapshot.attribute,
                           defense: averageDefense,
                           attackerLevel: snapshot.attackerLevel,
-                              mastery: masteryEfficiency(snapshot.masteryLevel || 1),
-                              cardBonus: snapshot.cardBonus || 0,
-                              posture: offlinePosture
+                          mastery: masteryEfficiency(snapshot.masteryLevel || 1),
+                          cardBonus: snapshot.cardBonus || 0,
+                          posture: offlinePosture
                       })
                     : 0,
             dps = damagePerHit * (1000 / effectiveAttackRate),
@@ -1363,6 +1366,7 @@ export default class Player extends Character {
             levelsGained: Math.max(0, this.skills.getCombatLevel() - previousLevel),
             lootCollected: result.collected,
             lootOverflow: result.overflow,
+            portadorKills: result.portadorKills,
             legendaryAnnouncements: result.announcements,
             reason
         };
@@ -1378,8 +1382,13 @@ export default class Player extends Character {
         snapshot: OfflineHuntSnapshot,
         kills: number,
         duration: number
-    ): { collected: number; overflow: number; announcements: string[] } {
-        if (kills < 1) return { collected: 0, overflow: 0, announcements: [] };
+    ): {
+        collected: number;
+        overflow: number;
+        portadorKills: number;
+        announcements: string[];
+    } {
+        if (kills < 1) return { collected: 0, overflow: 0, portadorKills: 0, announcements: [] };
 
         let randomState = snapshot.seed || 1,
             random = (maximum: number): number => {
@@ -1394,7 +1403,8 @@ export default class Player extends Character {
             rawItems = { ...rawItemData, ...engineItemData } as { [key: string]: ItemData },
             pendingDrops: LootDrop[] = [],
             population = snapshot.mobs.reduce((total, mob) => total + mob.count, 0);
-        if (population < 1) return { collected: 0, overflow: 0, announcements: [] };
+        if (population < 1)
+            return { collected: 0, overflow: 0, portadorKills: 0, announcements: [] };
 
         for (let kill = 0; kill < kills; kill++) {
             let target = random(population),
@@ -1464,21 +1474,18 @@ export default class Player extends Character {
         }
 
         let economy = simulateOfflineLoot({
-                seed: snapshot.seed ^ 0x9e3779b9,
+                seed: snapshot.seed ^ 0x9e_37_79_b9,
                 kills,
                 regionKillCount:
-                    snapshot.regionKillCount ??
-                    this.regionKillCounts[String(snapshot.region)] ??
-                    0,
+                    snapshot.regionKillCount ?? this.regionKillCounts[String(snapshot.region)] ?? 0,
                 startedAt: snapshot.startedAt,
                 duration,
                 autoRecycle: { rarities: [] }
             }),
-            loot = recycleDrops(
-                [...pendingDrops, ...economy.drops],
-                { rarities: this.autoRecycleRarities }
-            ),
-            aggregated = new Map<string, number>(),
+            loot = recycleDrops([...pendingDrops, ...economy.drops], {
+                rarities: this.autoRecycleRarities
+            }),
+            aggregated = new globalThis.Map<string, number>(),
             collected = 0,
             overflow = 0;
 
@@ -1489,9 +1496,8 @@ export default class Player extends Character {
             kills
         );
 
-        for (let drop of [...loot.kept, ...loot.recycled, ...economy.recycled]) {
+        for (let drop of [...loot.kept, ...loot.recycled, ...economy.recycled])
             aggregated.set(drop.key, (aggregated.get(drop.key) || 0) + drop.count);
-        }
 
         for (let [key, count] of aggregated) {
             let added = this.inventory.add(new Item(key, -1, -1, false, count));
@@ -1500,7 +1506,12 @@ export default class Player extends Character {
             overflow += Math.max(0, count - added);
         }
 
-        return { collected, overflow, announcements: economy.announcements };
+        return {
+            collected,
+            overflow,
+            portadorKills: economy.portadorKills,
+            announcements: economy.announcements
+        };
     }
 
     /**

@@ -44,12 +44,40 @@
         "scrapValue": 4,
         "bonus": { "beastDamage": 0.12 }
     },
+    "moss_slime_card": {
+        "type": "card",
+        "name": "Carta de Slime de Seiva",
+        "rarity": "uncommon",
+        "scrapValue": 2,
+        "bonus": { "defense": 0.02 }
+    },
+    "rotten_root_elder_card": {
+        "type": "card",
+        "name": "Carta de Ancião Raiz-Podre",
+        "rarity": "epic",
+        "scrapValue": 8,
+        "bonus": { "attack": 0.04, "beastDamage": 0.08 }
+    },
     "mist_guardian_card": {
         "type": "card",
         "name": "Carta de Guardião da Névoa",
         "rarity": "rare",
         "scrapValue": 4,
         "bonus": { "undeadDamage": 0.12 }
+    },
+    "crypt_apparition_card": {
+        "type": "card",
+        "name": "Carta de Aparição",
+        "rarity": "epic",
+        "scrapValue": 7,
+        "bonus": { "undeadDamage": 0.08, "defense": 0.02 }
+    },
+    "gray_lord_card": {
+        "type": "card",
+        "name": "Carta de Lorde Cinzento",
+        "rarity": "epic",
+        "scrapValue": 9,
+        "bonus": { "attack": 0.04, "undeadDamage": 0.1 }
     },
     "relic_of_the_ancient_root": {
         "type": "relic",
@@ -107,12 +135,36 @@
         "stackable": true,
         "scrapValue": 0
     },
-    "aurora_jewel_chest": {
-        "type": "material",
-        "name": "Joia da Aurora",
+    "legendary_aurora_blade": {
+        "type": "weapon",
+        "name": "Lâmina Lendária da Aurora",
         "rarity": "legendary",
+        "weaponFamily": "sword",
+        "weaponType": "sword",
+        "cardSlots": 2,
+        "gemSlots": 3,
         "scrapValue": 20,
         "globalAnnouncement": true,
-        "attack": 50
+        "attack": 50,
+        "attackStats": {
+            "crush": 45,
+            "slash": 60,
+            "stab": 45,
+            "archery": 0,
+            "magic": 0
+        },
+        "defenseStats": {
+            "crush": 5,
+            "slash": 5,
+            "stab": 5,
+            "archery": 0,
+            "magic": 0
+        },
+        "bonuses": {
+            "accuracy": 20,
+            "strength": 20,
+            "archery": 0,
+            "magic": 0
+        }
     }
 }

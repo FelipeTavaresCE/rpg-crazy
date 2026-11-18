@@ -3,7 +3,7 @@ export interface WeaponMastery {
     experience: number;
 }
 
-export type MasteryProgress = Record<string, WeaponMastery>;
+export type MasteryProgress = { [key: string]: WeaponMastery };
 
 export function masteryEfficiency(level: number): number {
     return Math.max(1, Math.min(100, Math.floor(level))) * 0.005;

@@ -1,9 +1,6 @@
-import { rollEconomyDrops, recycleDrops } from '../systems/LootAndEconomy';
-import type {
-    AutoRecycleSettings,
-    EconomyResult,
-    LootDrop
-} from '../systems/LootAndEconomy';
+import { rollEconomyDrops, recycleDrops } from '../systems/loot-and-economy';
+
+import type { AutoRecycleSettings, EconomyResult, LootDrop } from '../systems/loot-and-economy';
 
 export interface OfflineLootInput {
     seed: number;
@@ -32,7 +29,7 @@ export function simulateOfflineLoot(input: OfflineLootInput): OfflineLootResult 
             state ^= state << 13;
             state ^= state >>> 17;
             state ^= state << 5;
-            return (state >>> 0) / 0x1_0000_0000;
+            return (state >>> 0) / 0x1_00_00_00_00;
         },
         drops: LootDrop[] = [],
         portadorKills = 0,
@@ -58,8 +55,6 @@ export function simulateOfflineLoot(input: OfflineLootInput): OfflineLootResult 
         recycled: recycled.recycled,
         portadorKills,
         regionKillCount,
-        announcements: drops
-            .filter((drop) => drop.announceGlobally)
-            .map((drop) => drop.key)
+        announcements: drops.filter((drop) => drop.announceGlobally).map((drop) => drop.key)
     };
 }
