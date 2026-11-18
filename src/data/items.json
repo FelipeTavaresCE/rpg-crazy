@@ -1,0 +1,118 @@
+{
+    "mosswood_blade": {
+        "type": "weapon",
+        "name": "Lâmina do Bosque",
+        "rarity": "uncommon",
+        "weaponFamily": "sword",
+        "cardSlots": 1,
+        "gemSlots": 1,
+        "scrapValue": 2,
+        "attack": 12
+    },
+    "mistcrypt_staff": {
+        "type": "weapon",
+        "name": "Cajado da Névoa",
+        "rarity": "rare",
+        "weaponFamily": "staff",
+        "cardSlots": 2,
+        "gemSlots": 2,
+        "scrapValue": 5,
+        "attack": 20
+    },
+    "mosswood_armor": {
+        "type": "armor",
+        "name": "Couraça Musgosa",
+        "rarity": "uncommon",
+        "cardSlots": 1,
+        "gemSlots": 1,
+        "scrapValue": 2,
+        "defense": 8
+    },
+    "mistcrypt_armor": {
+        "type": "armor",
+        "name": "Manto da Cripta",
+        "rarity": "rare",
+        "cardSlots": 2,
+        "gemSlots": 1,
+        "scrapValue": 5,
+        "defense": 14
+    },
+    "moss_wolf_card": {
+        "type": "card",
+        "name": "Carta de Lobo Musgoso",
+        "rarity": "rare",
+        "scrapValue": 4,
+        "bonus": { "beastDamage": 0.12 }
+    },
+    "mist_guardian_card": {
+        "type": "card",
+        "name": "Carta de Guardião da Névoa",
+        "rarity": "rare",
+        "scrapValue": 4,
+        "bonus": { "undeadDamage": 0.12 }
+    },
+    "relic_of_the_ancient_root": {
+        "type": "relic",
+        "name": "Relíquia da Raiz Anciã",
+        "rarity": "epic",
+        "scrapValue": 12,
+        "bonus": { "attack": 0.05 }
+    },
+    "relic_of_the_gray_lord": {
+        "type": "relic",
+        "name": "Relíquia do Lorde Cinzento",
+        "rarity": "epic",
+        "scrapValue": 12,
+        "bonus": { "defense": 0.05 }
+    },
+    "relic_fragment": {
+        "type": "material",
+        "name": "Fragmento de Relíquia",
+        "rarity": "common",
+        "stackable": true,
+        "scrapValue": 0
+    },
+    "purified_relic": {
+        "type": "material",
+        "name": "Relíquia Purificada",
+        "rarity": "rare",
+        "stackable": true,
+        "scrapValue": 0
+    },
+    "aurora_jewel": {
+        "type": "material",
+        "name": "Joia da Aurora",
+        "rarity": "rare",
+        "stackable": true,
+        "scrapValue": 0
+    },
+    "temper_fragments": {
+        "type": "material",
+        "name": "Fragmentos de Têmpera",
+        "rarity": "common",
+        "stackable": true,
+        "scrapValue": 0
+    },
+    "arcane_dust": {
+        "type": "material",
+        "name": "Pó Arcano",
+        "rarity": "common",
+        "stackable": true,
+        "scrapValue": 0
+    },
+    "eclipse_essence": {
+        "type": "material",
+        "name": "Essência do Eclipse",
+        "rarity": "epic",
+        "stackable": true,
+        "scrapValue": 0
+    },
+    "aurora_jewel_chest": {
+        "type": "material",
+        "name": "Joia da Aurora",
+        "rarity": "legendary",
+        "scrapValue": 20,
+        "globalAnnouncement": true,
+        "attack": 50
+    }
+}

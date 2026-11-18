@@ -1,0 +1,66 @@
+{
+    "moss_seep_slime": {
+        "name": "Slime de Seiva",
+        "region": "bosque_musgo",
+        "family": "slime",
+        "level": 2,
+        "hitPoints": 32,
+        "attack": 3,
+        "defense": 1,
+        "card": "moss_wolf_card"
+    },
+    "moss_wolf": {
+        "name": "Lobo Musgoso",
+        "region": "bosque_musgo",
+        "family": "beast",
+        "level": 8,
+        "hitPoints": 110,
+        "attack": 10,
+        "defense": 5,
+        "card": "moss_wolf_card"
+    },
+    "rotten_root_elder": {
+        "name": "Ancião Raiz-Podre",
+        "region": "bosque_musgo",
+        "family": "plant",
+        "level": 15,
+        "hitPoints": 1800,
+        "attack": 45,
+        "defense": 28,
+        "boss": true,
+        "card": "moss_wolf_card",
+        "relic": "relic_of_the_ancient_root"
+    },
+    "crypt_guardian": {
+        "name": "Esqueleto Guardião",
+        "region": "cripta_da_nevoa",
+        "family": "undead",
+        "level": 18,
+        "hitPoints": 280,
+        "attack": 24,
+        "defense": 18,
+        "card": "mist_guardian_card"
+    },
+    "crypt_apparition": {
+        "name": "Aparição",
+        "region": "cripta_da_nevoa",
+        "family": "undead",
+        "level": 25,
+        "hitPoints": 460,
+        "attack": 34,
+        "defense": 25,
+        "card": "mist_guardian_card"
+    },
+    "gray_lord": {
+        "name": "Lorde Cinzento",
+        "region": "cripta_da_nevoa",
+        "family": "undead",
+        "level": 30,
+        "hitPoints": 4200,
+        "attack": 78,
+        "defense": 50,
+        "boss": true,
+        "card": "mist_guardian_card",
+        "relic": "relic_of_the_gray_lord"
+    }
+}

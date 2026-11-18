@@ -45,6 +45,20 @@ export interface LampData {
 export interface ItemData {
     type: string;
     name: string;
+    rarity?: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+    weaponFamily?: string;
+    cardSlots?: number;
+    gemSlots?: number;
+    scrapValue?: number;
+    attack?: number;
+    defense?: number;
+    bonus?: {
+        attack?: number;
+        defense?: number;
+        beastDamage?: number;
+        undeadDamage?: number;
+    };
+    globalAnnouncement?: boolean;
     stackable?: boolean;
     edible?: boolean;
     interactable?: boolean;

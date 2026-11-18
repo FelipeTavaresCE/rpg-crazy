@@ -1,4 +1,5 @@
 import rawData from '../../../../data/items.json';
+import engineItemData from '../../../../../../src/data/items.json';
 import Entity from '../entity';
 
 import log from '@kaetram/common/util/log';
@@ -104,7 +105,7 @@ export default class Item extends Entity {
         // Prevent invalid count values.
         this.count = Utils.sanitizeNumber(this.count);
 
-        this.data = (rawData as RawData)[key];
+        this.data = { ...rawData, ...engineItemData }[key] as ItemData;
 
         if (!this.data) {
             log.error(`[Item] Could not find data for ${key}.`);
