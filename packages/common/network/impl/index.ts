@@ -50,3 +50,11 @@ export { default as InterfacePacket } from './interface';
 export { default as LootBagPacket } from './lootbag';
 export { default as CountdownPacket } from './countdown';
 export { default as ResourcePacket } from './resource';
+export type {
+    AutoHuntPacketData,
+    AutoHuntRule,
+    AutoHuntPosture,
+    OfflineHuntReport,
+    OfflineHuntMob,
+    OfflineHuntSnapshot
+} from './autohunt';

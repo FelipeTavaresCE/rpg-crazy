@@ -53,6 +53,7 @@ import type {
     WelcomePacketCallback
 } from '@kaetram/common/types/messages/outgoing';
 import type { ConnectedPacketCallback } from '@kaetram/common/network/impl/connected';
+import type { AutoHuntPacketData } from '@kaetram/common/network/impl/autohunt';
 
 export default class Messages {
     private messages: (() => ((...data: never[]) => void) | undefined)[] = [];
@@ -107,6 +108,7 @@ export default class Messages {
     private lootBagCallback?: LootBagPacketCallback;
     private countdownCallback?: CountdownPacketCallback;
     private resourceCallback?: ResourcePacketCallback;
+    private autoHuntCallback?: (data: AutoHuntPacketData) => void;
 
     /**
      * Do not clutter up the Socket class with callbacks,
@@ -169,6 +171,7 @@ export default class Messages {
         this.messages[Packets.LootBag] = () => this.lootBagCallback;
         this.messages[Packets.Countdown] = () => this.countdownCallback;
         this.messages[Packets.Resource] = () => this.resourceCallback;
+        this.messages[Packets.AutoHunt] = () => this.autoHuntCallback;
     }
 
     /**
@@ -332,6 +335,10 @@ export default class Messages {
 
     public onWelcome(callback: WelcomePacketCallback): void {
         this.welcomeCallback = callback;
+    }
+
+    public onAutoHunt(callback: (data: AutoHuntPacketData) => void): void {
+        this.autoHuntCallback = callback;
     }
 
     public onSpawn(callback: SpawnPacketCallback): void {

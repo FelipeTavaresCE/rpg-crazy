@@ -40,9 +40,8 @@
 
                     <div id="welcome-instructions-keyboard">
                         <span>
-                            Use <strong>WASD</strong>, the <strong>Arrow Keys</strong>, or <strong
-                                >Click</strong
-                            > to move around.
+                            Use <strong>WASD</strong>, the <strong>Arrow Keys</strong>, or{' '}
+                            <strong>Click</strong> to move around.
                         </span>
 
                         <div class="welcome-controls">
@@ -71,7 +70,9 @@
             <div class="quest-description"></div>
             <ul class="quest-rewards"></ul>
 
-            <div id="quest-button" class="slice-button stroke">Start Quest</div>
+            <div id="quest-button" class="slice-button stroke">
+                Start Quest
+            </div>
         </div>
 
         <div id="in-app-store" class="slice-container-fancy">
@@ -90,14 +91,30 @@
         </div>
 
         <ul id="buttons">
-            <li><div id="inventory-button"></div></li>
-            <li><div id="achievements-button"></div></li>
-            <li><div id="quests-button"></div></li>
-            <li><div id="warp-button"></div></li>
-            <li><div id="profile-button"></div></li>
-            <li><div id="friends-button"></div></li>
-            <li><div id="chat-button"></div></li>
-            <li><div id="settings-button"></div></li>
+            <li>
+                <div id="inventory-button"></div>
+            </li>
+            <li>
+                <div id="achievements-button"></div>
+            </li>
+            <li>
+                <div id="quests-button"></div>
+            </li>
+            <li>
+                <div id="warp-button"></div>
+            </li>
+            <li>
+                <div id="profile-button"></div>
+            </li>
+            <li>
+                <div id="friends-button"></div>
+            </li>
+            <li>
+                <div id="chat-button"></div>
+            </li>
+            <li>
+                <div id="settings-button"></div>
+            </li>
         </ul>
 
         <div id="chat">
@@ -226,7 +243,9 @@
                     </div>
                     <div class="skill-info-details"></div>
                 </div>
-                <div id="skills-list"><ul></ul></div>
+                <div id="skills-list">
+                    <ul></ul>
+                </div>
             </div>
 
             <div id="profile-navigator">
@@ -424,6 +443,65 @@
             <div class="health"></div>
         </div>
 
+        <section id="auto-hunt-panel" aria-label="Auto-Hunt e Eco Tático">
+            <button id="auto-hunt-toggle" type="button" aria-pressed="false">
+                Auto-Hunt
+            </button>
+            <div id="auto-hunt-posture">Postura: Equilíbrio</div>
+            <details>
+                <summary>Eco Tático</summary>
+                <label>
+                    Regra 1
+                    <select class="auto-hunt-rule">
+                        <option value="heal-low">HP abaixo de 35%: usar cura</option>
+                        <option value="disabled">Sem ação</option>
+                    </select>
+                </label>
+                <label>
+                    Regra 2
+                    <select class="auto-hunt-rule">
+                        <option value="guard-low">HP abaixo de 50%: Guarda</option>
+                        <option value="balance-low">HP abaixo de 50%: Equilíbrio</option>
+                        <option value="disabled">Sem ação</option>
+                    </select>
+                </label>
+                <label>
+                    Regra 3
+                    <select class="auto-hunt-rule">
+                        <option value="advance-high">HP a partir de 50%: Avanço</option>
+                        <option value="balance-high">HP a partir de 50%: Equilíbrio</option>
+                        <option value="disabled">Sem ação</option>
+                    </select>
+                </label>
+            </details>
+        </section>
+
+        <dialog id="offline-report">
+            <h2>Relatório de Retorno</h2>
+            <h3>O que aconteceu</h3>
+            <p>
+                Tempo caçado: <span class="offline-report-time"></span>
+            </p>
+            <p>
+                Monstros derrotados: <span class="offline-report-kills"></span>
+            </p>
+            <p>
+                Experiência recebida: <span class="offline-report-experience"></span>
+            </p>
+            <p>
+                Níveis ganhos: <span class="offline-report-levels"></span>
+            </p>
+            <h3>O que guardar</h3>
+            <p class="offline-report-loot"></p>
+            <h3>O que melhorar</h3>
+            <p class="offline-report-reason"></p>
+            <h3>Próxima oportunidade</h3>
+            <p>Retome a caça em uma área PvE elegível.</p>
+            <button class="offline-report-close" type="button">
+                Fechar
+            </button>
+        </dialog>
+
         <div id="map-frame">
             <div id="warp0" class="map-button"></div>
             <div id="warp1" class="map-button"></div>
@@ -500,7 +578,9 @@
                 </div>
 
                 <div id="trade-status"></div>
-                <div id="trade-accept" class="stroke slice-button">ACCEPT</div>
+                <div id="trade-accept" class="stroke slice-button">
+                    ACCEPT
+                </div>
             </div>
         </div>
 
@@ -721,10 +801,14 @@
             <div id="close-quests" class="close-container"></div>
 
             <div id="quests-container">
-                <div id="quests-list" class="slice-inner-container stroke"><ul></ul></div>
+                <div id="quests-list" class="slice-inner-container stroke">
+                    <ul></ul>
+                </div>
                 <div id="quests-logs" class="slice-inner-container">
                     <div id="quests-logs-container">
-                        <h1 id="quests-logs-title" class="stroke">Quest Title</h1>
+                        <h1 id="quests-logs-title" class="stroke">
+                            Quest Title
+                        </h1>
                         <p id="quests-logs-shortdesc"></p>
 
                         <h3 class="stroke">Description</h3>
@@ -812,7 +896,9 @@
                 <li id="craft-ten" class="amount-button amount-ten"></li>
             </ul>
 
-            <div id="craft-button" class="stroke">Craft</div>
+            <div id="craft-button" class="stroke">
+                Craft
+            </div>
         </div>
 
         <div id="guilds" class="slice-container">
@@ -824,12 +910,16 @@
             </div>
 
             <div id="guilds-list-container" class="stroke">
-                <div id="create-guild" class="element-button element-button stroke">Create</div>
+                <div id="create-guild" class="element-button element-button stroke">
+                    Create
+                </div>
 
                 <div class="title-decoration">Guilds</div>
 
                 <div id="guilds-list" class="slice-inner-container">
-                    <p id="guilds-info" class="stroke">There are no guilds available...</p>
+                    <p id="guilds-info" class="stroke">
+                        There are no guilds available...
+                    </p>
                     <ul></ul>
                 </div>
             </div>
@@ -839,8 +929,7 @@
                     <div
                         id="banner-colour-button"
                         class="colour-select-button button-banner-colour active"
-                    >
-                    </div>
+                    ></div>
                     <div id="banner-outline-button" class="colour-select-button outline-button-1">
                         <div class="colour-button-arrow-left"></div>
                         <div class="colour-button-arrow-right"></div>
@@ -866,7 +955,9 @@
                         <div id="guilds-back-button" class="element-button element-button-red">
                             Back
                         </div>
-                        <div id="guilds-create-button" class="element-button">Create</div>
+                        <div id="guilds-create-button" class="element-button">
+                            Create
+                        </div>
                     </div>
                 </div>
             </div>
@@ -884,12 +975,12 @@
                     <ul></ul>
 
                     <dialog id="guild-member-dialog" class="slice-dialog">
-                        <h2 id="guild-member-selected">
-                            <!--  -->
-                        </h2>
+                        <h2 id="guild-member-selected">Membro selecionado</h2>
 
                         <div class="stroke button-row">
-                            <div id="guild-member-promote" class="element-button">Promote</div>
+                            <div id="guild-member-promote" class="element-button">
+                                Promote
+                            </div>
 
                             <div id="guild-member-demote" class="element-button element-button-red">
                                 Demote
@@ -948,4 +1039,4 @@
             <div class="slice-inner-container"></div>
         </div>
     </div>
-</div>
+</div>;

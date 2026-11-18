@@ -70,6 +70,7 @@ import type { EquipmentPacketValues } from '@kaetram/common/network/impl/equipme
 import type Resource from '../entity/objects/resource/resource';
 import type { ResourcePacketData } from '@kaetram/common/network/impl/resource';
 import type { NetworkPacketData } from '@kaetram/common/network/impl/network';
+import type { AutoHuntPacketData } from '@kaetram/common/network/impl/autohunt';
 
 export default class Connection {
     /**
@@ -176,6 +177,7 @@ export default class Connection {
         this.messages.onLootBag(this.handleLootBag.bind(this));
         this.messages.onCountdown(this.handleCountdown.bind(this));
         this.messages.onResource(this.handleResource.bind(this));
+        this.messages.onAutoHunt(this.game.input.hud.updateAutoHunt.bind(this.game.input.hud));
     }
 
     /**
@@ -248,6 +250,12 @@ export default class Connection {
 
     private handleWelcome(data: PlayerData): void {
         this.game.player.load(data);
+        this.game.input.hud.updateAutoHunt({
+            action: 'state',
+            enabled: data.autoHuntEnabled,
+            rules: data.autoHuntRules
+        } as AutoHuntPacketData);
+        if (data.autoHuntReport) this.game.input.hud.showOfflineReport(data.autoHuntReport);
 
         this.game.start();
         this.game.postLoad();

@@ -38,6 +38,7 @@ import type {
     LootBagPacket
 } from '@kaetram/common/types/messages/incoming';
 import type { QuestPacketData } from '@kaetram/common/network/impl/quest';
+import type { AutoHuntPacketData } from '@kaetram/common/network/impl/autohunt';
 
 export default class Incoming {
     private world: World;
@@ -145,6 +146,9 @@ export default class Incoming {
                     }
                     case Packets.Pet: {
                         return this.handlePet(message);
+                    }
+                    case Packets.AutoHunt: {
+                        return this.player.configureAutoHunt(message as AutoHuntPacketData);
                     }
                 }
             } catch (error) {
@@ -433,6 +437,9 @@ export default class Incoming {
             }
 
             case Opcodes.Target.Attack: {
+                if (this.player.autoHuntEnabled)
+                    this.player.configureAutoHunt({ action: 'configure', enabled: false });
+
                 return this.player.handleTargetAttack(instance, x, y);
             }
 

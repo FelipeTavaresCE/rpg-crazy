@@ -113,7 +113,7 @@ export default class LootBag extends Entity {
      * player is requesting to take.
      */
 
-    public take(player: Player, index: number, count = 1): void {
+    public take(player: Player, index: number): void {
         if (this.instance !== player.activeLootBag)
             return log.warning(
                 `Player ${player.username} tried to take an item from a loot bag without opening it.`
@@ -154,6 +154,19 @@ export default class LootBag extends Entity {
         // Destroy the loot bag if it is empty.
         if (this.isEmpty()) this.destroy();
         else this.sendTakePacket(index);
+    }
+
+    public collect(player: Player): void {
+        if (this.getDistance(player) > 1 || !this.isOwner(player.username)) return;
+
+        player.activeLootBag = this.instance;
+
+        for (let index of Object.keys(this.container).map(Number)) {
+            if (!player.inventory.hasSpace()) break;
+            this.take(player, index);
+        }
+
+        player.activeLootBag = '';
     }
 
     /**

@@ -69,7 +69,7 @@ export default class MongoDB {
                 this.database = mongoClient.db(this.databaseName);
 
                 this.loader = new Loader(this.database);
-                this.creator = new Creator(this.database);
+                this.creator = new Creator(this.database, mongoClient);
 
                 this.readyCallback?.();
 

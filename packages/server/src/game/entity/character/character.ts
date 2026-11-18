@@ -394,6 +394,9 @@ export default abstract class Character extends Entity {
         // Stop hitting if entity is dead.
         if (this.isDead() || this.status.has(Modules.Effects.Invincible)) return;
 
+        if (this.isMob() && attacker?.isPlayer() && attacker.autoHuntEnabled)
+            damage = Math.min(damage, this.hitPoints.getHitPoints());
+
         // Add an entry to the damage table.
         if (attacker?.isPlayer()) this.addToDamageTable(attacker, damage);
 
