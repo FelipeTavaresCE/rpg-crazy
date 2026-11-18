@@ -4,10 +4,11 @@ import Formulas from '../../../../info/formulas';
 import { getPvEDamage } from '../../../../info/pve-formula';
 import {
     calculateCombatDamage,
+    getWeaponSkillCooldown,
     getWeaponSkillArea
-} from '../../../../../../../src/engine/CombatEngine';
+} from '../../../../../../../src/engine/combat-engine';
 import engineMonsterData from '../../../../../../../src/data/monsters.json';
-import { calculatePassiveBonuses } from '../../../../../../../src/systems/PassiveTreeSystem';
+import { calculatePassiveBonuses } from '../../../../../../../src/systems/passive-tree-system';
 
 import log from '@kaetram/common/util/log';
 import { Modules, Opcodes } from '@kaetram/common/network';
@@ -242,8 +243,7 @@ export default class Combat {
             this.character.sendToRegions(new SpawnPacket(projectile));
         }
 
-        if (this.character.isPlayer())
-            (this.character as Player).autoHuntProjectileCount = 1;
+        if (this.character.isPlayer()) (this.character as Player).autoHuntProjectileCount = 1;
     }
 
     /**
@@ -273,9 +273,8 @@ export default class Combat {
                     ? defenseStats.crush
                     : defenseStats.slash,
                 mobFamily = (engineMonsterData as { [key: string]: { family: string } })[mob.key]
-                    ?.family;
-
-            let skillId = player.autoHuntPendingSkill,
+                    ?.family,
+                skillId = player.autoHuntPendingSkill,
                 passiveBonuses = calculatePassiveBonuses(player.unlockedPassiveNodes),
                 damage = calculateCombatDamage({
                     attackBonus: player.getDamageBonus(),
@@ -293,7 +292,11 @@ export default class Combat {
 
             player.autoHuntPendingSkill = undefined;
             player.autoHuntProjectileCount = damage.projectileCount;
-            if (skillId) player.aoe = Math.max(player.aoe, getWeaponSkillArea(skillId) ?? 0);
+            if (skillId) {
+                player.autoHuntSkillCooldowns[skillId] =
+                    Date.now() + getWeaponSkillCooldown(skillId);
+                player.aoe = Math.max(player.aoe, getWeaponSkillArea(skillId) ?? 0);
+            }
 
             return new Hit(
                 damageType,

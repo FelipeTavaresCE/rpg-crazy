@@ -1,11 +1,16 @@
 import type {
+    CombatStance,
     GambitAction,
     GambitCondition,
     GambitRule
 } from '@kaetram/common/network/impl/autohunt';
 
-export type { GambitAction, GambitCondition, GambitRule } from '@kaetram/common/network/impl/autohunt';
-export type { CombatStance } from '@kaetram/common/network/impl/autohunt';
+export type {
+    CombatStance,
+    GambitAction,
+    GambitCondition,
+    GambitRule
+} from '@kaetram/common/network/impl/autohunt';
 
 export interface GambitContext {
     hitPoints: number;
@@ -16,6 +21,7 @@ export interface GambitContext {
     canUseUltimate: boolean;
     canUseAoe: boolean;
     hasTarget: boolean;
+    currentStance?: CombatStance;
 }
 
 export interface GambitDecision {
@@ -53,7 +59,7 @@ export const DEFAULT_GAMBIT_RULES: GambitRule[] = [
     }
 ];
 
-export function sanitizeGambitRules(value: unknown): GambitRule[] {
+export function sanitizeGambitRules(value?: unknown): GambitRule[] {
     if (!Array.isArray(value)) return DEFAULT_GAMBIT_RULES.map((rule) => ({ ...rule }));
 
     return value
@@ -89,34 +95,43 @@ export function evaluateGambitRules(
 
 function matchesCondition(condition: GambitCondition, context: GambitContext): boolean {
     switch (condition.type) {
-        case 'HP_BELOW_PERCENT':
+        case 'HP_BELOW_PERCENT': {
             return (
                 Number.isFinite(context.hitPoints) &&
                 Number.isFinite(context.maxHitPoints) &&
                 context.maxHitPoints > 0 &&
                 (context.hitPoints / context.maxHitPoints) * 100 < condition.percent
             );
-        case 'TARGET_IS_PORTADOR_OR_BOSS':
+        }
+        case 'TARGET_IS_PORTADOR_OR_BOSS': {
             return context.targetIsPortadorOrBoss;
-        case 'ADJACENT_ENEMIES_GTE':
+        }
+        case 'ADJACENT_ENEMIES_GTE': {
             return context.adjacentEnemies >= condition.count;
-        case 'ALWAYS':
+        }
+        case 'ALWAYS': {
             return true;
+        }
     }
 }
 
 function canPerform(action: GambitAction, context: GambitContext): boolean {
     switch (action.type) {
-        case 'USE_POTION_OR_HEAL':
+        case 'USE_POTION_OR_HEAL': {
             return context.canHeal;
-        case 'USE_ULTIMATE':
+        }
+        case 'USE_ULTIMATE': {
             return context.canUseUltimate && context.hasTarget;
-        case 'USE_AOE':
+        }
+        case 'USE_AOE': {
             return context.canUseAoe && context.hasTarget;
-        case 'ATTACK_NEAREST':
+        }
+        case 'ATTACK_NEAREST': {
             return context.hasTarget;
-        case 'SWITCH_STANCE':
-            return true;
+        }
+        case 'SWITCH_STANCE': {
+            return context.currentStance !== action.stance;
+        }
     }
 }
 
@@ -124,15 +139,19 @@ function isValidCondition(value: GambitCondition): boolean {
     if (!value || typeof value !== 'object') return false;
 
     switch (value.type) {
-        case 'HP_BELOW_PERCENT':
+        case 'HP_BELOW_PERCENT': {
             return Number.isFinite(value.percent) && value.percent > 0 && value.percent <= 100;
+        }
         case 'TARGET_IS_PORTADOR_OR_BOSS':
-        case 'ALWAYS':
+        case 'ALWAYS': {
             return true;
-        case 'ADJACENT_ENEMIES_GTE':
+        }
+        case 'ADJACENT_ENEMIES_GTE': {
             return Number.isInteger(value.count) && value.count > 0;
-        default:
+        }
+        default: {
             return false;
+        }
     }
 }
 
@@ -143,11 +162,14 @@ function isValidAction(value: GambitAction): boolean {
         case 'USE_POTION_OR_HEAL':
         case 'USE_ULTIMATE':
         case 'USE_AOE':
-        case 'ATTACK_NEAREST':
+        case 'ATTACK_NEAREST': {
             return true;
-        case 'SWITCH_STANCE':
+        }
+        case 'SWITCH_STANCE': {
             return ['Equilíbrio', 'Avanço', 'Guarda'].includes(value.stance);
-        default:
+        }
+        default: {
             return false;
+        }
     }
 }

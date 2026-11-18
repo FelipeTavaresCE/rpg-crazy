@@ -26,18 +26,19 @@ import {
 import {
     calculateCombatDamage,
     getSkillGemEffect,
+    getWeaponSkillCooldown,
     getWeaponSkillArea
-} from '../../../../../../../src/engine/CombatEngine';
+} from '../../../../../../../src/engine/combat-engine';
 import { calculateCardAndRelicBonuses } from '../../../../../../../src/systems/card-and-relic-system';
 import {
     calculatePassiveBonuses,
     getPassivePoints,
     unlockPassiveNode as unlockTreeNode
-} from '../../../../../../../src/systems/PassiveTreeSystem';
+} from '../../../../../../../src/systems/passive-tree-system';
 import {
     evaluateGambitRules,
     sanitizeGambitRules
-} from '../../../../../../../src/systems/GambitAI';
+} from '../../../../../../../src/systems/gambit-ai';
 import {
     awardWeaponMastery,
     masteryEfficiency
@@ -162,9 +163,10 @@ export default class Player extends Character {
     public overrideMovementSpeed = -1;
     public autoHuntEnabled = false;
     public autoHuntRules: AutoHuntRule[] = ['heal-low', 'guard-low', 'advance-high'];
-    public gambitRules: GambitRule[] = DEFAULT_GAMBIT_RULES.map((rule) => ({ ...rule }));
+    public gambitRules: GambitRule[] = sanitizeGambitRules();
     public autoHuntPosture: AutoHuntPosture = 'balance';
     public autoHuntPendingSkill?: string;
+    public autoHuntSkillCooldowns: { [key: string]: number } = {};
     public autoHuntProjectileCount = 1;
     public autoHuntSnapshot?: OfflineHuntSnapshot;
     public autoHuntReport?: OfflineHuntReport;
@@ -867,6 +869,11 @@ export default class Player extends Character {
     }
 
     public configureAutoHunt(data: AutoHuntPacketData): void {
+        if (data.action === 'unlock-passive') {
+            if (data.nodeId) this.unlockPassiveNode(data.nodeId);
+            return;
+        }
+
         if (data.action !== 'configure') return;
 
         if (Array.isArray(data.gambits)) this.gambitRules = sanitizeGambitRules(data.gambits);
@@ -986,8 +993,11 @@ export default class Player extends Character {
     }
 
     private evaluateGambits(): void {
-        let target = this.target?.isMob() && !this.target.isDead() ? (this.target as Mob) : undefined,
-            adjacentEnemies = 0;
+        let target =
+                this.target?.isMob() && !this.target.isDead() ? (this.target as Mob) : undefined,
+            adjacentEnemies = 0,
+            ultimateSkill = this.getAutoHuntSkillId('ultimate'),
+            areaSkill = this.getAutoHuntSkillId('area');
 
         this.world.entities.forEachMob((mob) => {
             if (!mob.isDead() && mob.region === this.region && mob.getDistance(this) <= 1)
@@ -1000,9 +1010,19 @@ export default class Player extends Character {
             targetIsPortadorOrBoss: !!target && (target.boss || target.miniboss),
             adjacentEnemies,
             canHeal: this.hasAutoHuntHealingItem(),
-            canUseUltimate: !this.autoHuntPendingSkill,
-            canUseAoe: !this.autoHuntPendingSkill,
-            hasTarget: !!target
+            canUseUltimate:
+                !this.autoHuntPendingSkill &&
+                Date.now() >= (this.autoHuntSkillCooldowns[ultimateSkill] ?? 0),
+            canUseAoe:
+                !this.autoHuntPendingSkill &&
+                Date.now() >= (this.autoHuntSkillCooldowns[areaSkill] ?? 0),
+            hasTarget: !!target,
+            currentStance:
+                this.autoHuntPosture === 'guard'
+                    ? 'Guarda'
+                    : this.autoHuntPosture === 'advance'
+                    ? 'Avanço'
+                    : 'Equilíbrio'
         });
 
         if (!decision) return;
@@ -1044,15 +1064,18 @@ export default class Player extends Character {
                 }
                 break;
             }
-            case 'USE_ULTIMATE':
+            case 'USE_ULTIMATE': {
                 this.autoHuntPendingSkill = this.getAutoHuntSkillId('ultimate');
                 break;
-            case 'USE_AOE':
+            }
+            case 'USE_AOE': {
                 this.autoHuntPendingSkill = this.getAutoHuntSkillId('area');
                 this.aoe = getWeaponSkillArea(this.autoHuntPendingSkill) || 1;
                 break;
-            case 'ATTACK_NEAREST':
+            }
+            case 'ATTACK_NEAREST': {
                 break;
+            }
         }
     }
 
@@ -1071,12 +1094,12 @@ export default class Player extends Character {
     }
 
     private getAutoHuntSkillId(type: 'area' | 'ultimate'): string {
-        let family = this.isArcher() ? 'bow' : this.isMagic() ? 'staff' : 'sword';
-        let skills: Record<string, { area: string; ultimate: string }> = {
-            sword: { area: 'sword_cleave', ultimate: 'sword_ultimate' },
-            bow: { area: 'bow_volley', ultimate: 'bow_ultimate' },
-            staff: { area: 'staff_nova', ultimate: 'staff_ultimate' }
-        };
+        let family = this.isArcher() ? 'bow' : this.isMagic() ? 'staff' : 'sword',
+            skills: { [key: string]: { area: string; ultimate: string } } = {
+                sword: { area: 'sword_cleave', ultimate: 'sword_ultimate' },
+                bow: { area: 'bow_volley', ultimate: 'bow_ultimate' },
+                staff: { area: 'staff_nova', ultimate: 'staff_ultimate' }
+            };
         return skills[family][type];
     }
 
@@ -1133,6 +1156,7 @@ export default class Player extends Character {
 
     private stopAutoHunt(): void {
         this.autoHuntEnabled = false;
+        this.autoHuntPendingSkill = undefined;
         if (this.autoHuntInterval) clearInterval(this.autoHuntInterval);
         this.autoHuntInterval = null;
         if (this.autoHuntPosture !== 'balance') this.autoHuntPosture = 'balance';
@@ -1229,14 +1253,12 @@ export default class Player extends Character {
                     );
                 }, 0) /
                     mobs.reduce((total, mob) => total + mob.count, 0),
-            masteryLevel = this.weaponMastery[weaponFamily]?.level || 1;
-        let passiveBonuses = calculatePassiveBonuses(this.unlockedPassiveNodes),
+            masteryLevel = this.weaponMastery[weaponFamily]?.level || 1,
+            passiveBonuses = calculatePassiveBonuses(this.unlockedPassiveNodes),
             weaponGems = this.socketedGems[this.equipment.getWeapon().key] || [],
-            maxHitPoints =
-                this.hitPoints.getMaxHitPoints() * (1 + passiveBonuses.maxHitPoints),
+            maxHitPoints = this.hitPoints.getMaxHitPoints() * (1 + passiveBonuses.maxHitPoints),
             hitPoints =
-                (this.hitPoints.getHitPoints() / this.hitPoints.getMaxHitPoints()) *
-                maxHitPoints;
+                (this.hitPoints.getHitPoints() / this.hitPoints.getMaxHitPoints()) * maxHitPoints;
 
         return {
             startedAt: Date.now(),
@@ -1350,9 +1372,8 @@ export default class Player extends Character {
                         : `${skillFamily}_${skillFamily === 'bow' ? 'volley' : 'nova'}`
                     : undefined,
             usesHealing = gambit?.action.type === 'USE_POTION_OR_HEAL',
-            passiveBonuses = calculatePassiveBonuses(snapshot.unlockedPassiveNodes || []);
-
-        let average = (select: (mob: OfflineHuntMob) => number): number =>
+            passiveBonuses = calculatePassiveBonuses(snapshot.unlockedPassiveNodes || []),
+            average = (select: (mob: OfflineHuntMob) => number): number =>
                 mobs.reduce((total, mob) => total + select(mob) * mob.count, 0) / population,
             averageHP = average((mob) => mob.hitPoints),
             averageDefense = average((mob) => mob.defense),
@@ -1395,11 +1416,36 @@ export default class Player extends Character {
                     attack: snapshot.passiveBonus ?? passiveBonuses.attack
                 },
                 posture: offlinePosture,
-                skillId,
                 projectile: snapshot.resourceType !== 'none',
                 socketedGems: snapshot.socketedGems
             }),
-            damagePerHit = damageResult.totalDamage,
+            skillDamageResult = skillId
+                ? calculateCombatDamage({
+                      attackBonus: snapshot.attackBonus,
+                      attribute: snapshot.attribute,
+                      defense: averageDefense,
+                      attackerLevel: snapshot.attackerLevel,
+                      mastery: masteryEfficiency(snapshot.masteryLevel || 1),
+                      cardBonus: snapshot.cardBonus || 0,
+                      passiveBonuses: {
+                          ...passiveBonuses,
+                          attack: snapshot.passiveBonus ?? passiveBonuses.attack
+                      },
+                      posture: offlinePosture,
+                      skillId,
+                      projectile: snapshot.resourceType !== 'none',
+                      socketedGems: snapshot.socketedGems
+                  })
+                : damageResult,
+            skillFrequency = skillId
+                ? Math.min(1, effectiveAttackRate / Math.max(100, getWeaponSkillCooldown(skillId)))
+                : 0,
+            damagePerHit =
+                damageResult.totalDamage +
+                (skillDamageResult.totalDamage - damageResult.totalDamage) * skillFrequency,
+            lifeStealPerAttack =
+                damageResult.lifeSteal +
+                (skillDamageResult.lifeSteal - damageResult.lifeSteal) * skillFrequency,
             dps = damagePerHit * (1000 / effectiveAttackRate),
             baseKillTime = dps > 0 ? averageHP / dps + 2.5 : Infinity,
             attacksPerKill = Math.max(1, Math.ceil((baseKillTime * 1000) / effectiveAttackRate)),
@@ -1427,16 +1473,13 @@ export default class Player extends Character {
             damageTakenPerKill =
                 mobDamagePerAttack *
                 Math.max(1, Math.ceil((baseKillTime * 1000) / Math.max(100, averageAttackRate))),
-            lifeStealPerKill =
-                damageResult.lifeSteal * Math.max(1, attacksPerKill),
+            lifeStealPerKill = lifeStealPerAttack * Math.max(1, attacksPerKill),
             recoveryTime = guardRegen > 0 ? damageTakenPerKill / guardRegen : 0,
             killTime = baseKillTime + recoveryTime,
             survivalLimit =
                 damageTakenPerKill > lifeStealPerKill
                     ? Math.floor(
-                          (snapshot.hitPoints +
-                              healingBudget.hitPoints +
-                              guardRegen * seconds) /
+                          (snapshot.hitPoints + healingBudget.hitPoints + guardRegen * seconds) /
                               (damageTakenPerKill - lifeStealPerKill)
                       )
                     : Infinity,
@@ -1484,9 +1527,7 @@ export default class Player extends Character {
                       )
                     : 0,
             missingMana =
-                usesHealing &&
-                snapshot.resourceType === 'mana' &&
-                snapshot.resourcePerAttack > 0
+                usesHealing && snapshot.resourceType === 'mana' && snapshot.resourcePerAttack > 0
                     ? Math.max(
                           0,
                           consumedAttacks * snapshot.resourcePerAttack - snapshot.resourceCount
@@ -1518,10 +1559,7 @@ export default class Player extends Character {
         if (healingMana > 0) this.mana.increment(healingMana);
         if (damageTakenPerKill > 0 && kills > 0)
             this.hitPoints.decrement(
-                Math.max(
-                    0,
-                    kills * (damageTakenPerKill - lifeStealPerKill) - guardRegen * elapsed
-                )
+                Math.max(0, kills * (damageTakenPerKill - lifeStealPerKill) - guardRegen * elapsed)
             );
 
         let result = this.applyOfflineDrops(snapshot, kills, elapsed),

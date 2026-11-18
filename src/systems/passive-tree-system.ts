@@ -12,7 +12,7 @@ export interface PassiveNode {
     bonuses: Partial<PassiveBonuses>;
 }
 
-export const PASSIVE_NODES: Record<string, PassiveNode> = {
+export const PASSIVE_NODES: { [key: string]: PassiveNode } = {
     constellation_root: {
         id: 'constellation_root',
         requiredLevel: 2,

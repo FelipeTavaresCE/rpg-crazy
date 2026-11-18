@@ -96,10 +96,11 @@ export interface OfflineHuntSnapshot {
 }
 
 export interface AutoHuntPacketData {
-    action: 'configure' | 'state' | 'report';
+    action: 'configure' | 'state' | 'report' | 'unlock-passive';
     enabled?: boolean;
     rules?: AutoHuntRule[];
     gambits?: GambitRule[];
+    nodeId?: string;
     posture?: AutoHuntPosture;
     report?: OfflineHuntReport;
     target?: string;

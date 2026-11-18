@@ -54,6 +54,10 @@ export type {
     AutoHuntPacketData,
     AutoHuntRule,
     AutoHuntPosture,
+    CombatStance,
+    GambitAction,
+    GambitCondition,
+    GambitRule,
     OfflineHuntReport,
     OfflineHuntMob,
     OfflineHuntSnapshot

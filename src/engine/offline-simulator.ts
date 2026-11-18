@@ -1,8 +1,12 @@
 import { rollEconomyDrops, recycleDrops } from '../systems/loot-and-economy';
-import { DEFAULT_GAMBIT_RULES, evaluateGambitRules, sanitizeGambitRules } from '../systems/GambitAI';
+import {
+    DEFAULT_GAMBIT_RULES,
+    evaluateGambitRules,
+    sanitizeGambitRules
+} from '../systems/gambit-ai';
 
 import type { AutoRecycleSettings, EconomyResult, LootDrop } from '../systems/loot-and-economy';
-import type { GambitDecision } from '../systems/GambitAI';
+import type { GambitDecision } from '../systems/gambit-ai';
 import type { OfflineHuntSnapshot } from '@kaetram/common/network/impl/autohunt';
 
 export interface OfflineLootInput {
@@ -24,6 +28,7 @@ export function evaluateOfflineGambit(
         OfflineHuntSnapshot,
         | 'hitPoints'
         | 'maxHitPoints'
+        | 'posture'
         | 'gambitRules'
         | 'mobs'
         | 'adjacentEnemies'
@@ -38,12 +43,18 @@ export function evaluateOfflineGambit(
         maxHitPoints: snapshot.maxHitPoints,
         targetIsPortadorOrBoss:
             snapshot.mobs.some((mob) => mob.boss) ||
-            (((snapshot.regionKillCount ?? 0) + 1) % 100 === 0),
+            ((snapshot.regionKillCount ?? 0) + 1) % 100 === 0,
         adjacentEnemies: snapshot.adjacentEnemies ?? 0,
         canHeal: snapshot.healingItems.some((item) => item.count > 0),
         canUseUltimate: true,
         canUseAoe: true,
-        hasTarget: snapshot.mobs.length > 0
+        hasTarget: snapshot.mobs.length > 0,
+        currentStance:
+            snapshot.posture === 'guard'
+                ? 'Guarda'
+                : snapshot.posture === 'advance'
+                ? 'Avanço'
+                : 'Equilíbrio'
     });
 }
 

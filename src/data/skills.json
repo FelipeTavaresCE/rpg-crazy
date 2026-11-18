@@ -11,6 +11,7 @@
             "type": "area",
             "rangeSqm": 1,
             "areaRadiusSqm": 1,
+            "cooldownMs": 5000,
             "damageMultiplier": 1.25
         },
         "sword_ultimate": {
@@ -18,6 +19,7 @@
             "type": "ultimate",
             "rangeSqm": 1,
             "areaRadiusSqm": 2,
+            "cooldownMs": 30000,
             "damageMultiplier": 2
         },
         "bow_shot": {
@@ -32,6 +34,7 @@
             "type": "area",
             "rangeSqm": 5,
             "areaRadiusSqm": 2,
+            "cooldownMs": 5000,
             "projectile": true,
             "damageMultiplier": 1.25
         },
@@ -40,6 +43,7 @@
             "type": "ultimate",
             "rangeSqm": 5,
             "areaRadiusSqm": 2,
+            "cooldownMs": 30000,
             "projectile": true,
             "damageMultiplier": 2
         },
@@ -55,6 +59,7 @@
             "type": "area",
             "rangeSqm": 5,
             "areaRadiusSqm": 2,
+            "cooldownMs": 5000,
             "projectile": true,
             "damageMultiplier": 1.25
         },
@@ -63,6 +68,7 @@
             "type": "ultimate",
             "rangeSqm": 5,
             "areaRadiusSqm": 2,
+            "cooldownMs": 30000,
             "projectile": true,
             "damageMultiplier": 2
         }
