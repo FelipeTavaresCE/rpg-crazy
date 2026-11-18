@@ -1,0 +1,80 @@
+{
+    "weaponSkills": {
+        "sword_strike": {
+            "weaponFamily": "sword",
+            "type": "attack",
+            "rangeSqm": 1,
+            "damageMultiplier": 1
+        },
+        "sword_cleave": {
+            "weaponFamily": "sword",
+            "type": "area",
+            "rangeSqm": 1,
+            "areaRadiusSqm": 1,
+            "damageMultiplier": 1.25
+        },
+        "sword_ultimate": {
+            "weaponFamily": "sword",
+            "type": "ultimate",
+            "rangeSqm": 1,
+            "areaRadiusSqm": 2,
+            "damageMultiplier": 2
+        },
+        "bow_shot": {
+            "weaponFamily": "bow",
+            "type": "attack",
+            "rangeSqm": 5,
+            "projectile": true,
+            "damageMultiplier": 1
+        },
+        "bow_volley": {
+            "weaponFamily": "bow",
+            "type": "area",
+            "rangeSqm": 5,
+            "areaRadiusSqm": 2,
+            "projectile": true,
+            "damageMultiplier": 1.25
+        },
+        "bow_ultimate": {
+            "weaponFamily": "bow",
+            "type": "ultimate",
+            "rangeSqm": 5,
+            "areaRadiusSqm": 2,
+            "projectile": true,
+            "damageMultiplier": 2
+        },
+        "staff_bolt": {
+            "weaponFamily": "staff",
+            "type": "attack",
+            "rangeSqm": 5,
+            "projectile": true,
+            "damageMultiplier": 1
+        },
+        "staff_nova": {
+            "weaponFamily": "staff",
+            "type": "area",
+            "rangeSqm": 5,
+            "areaRadiusSqm": 2,
+            "projectile": true,
+            "damageMultiplier": 1.25
+        },
+        "staff_ultimate": {
+            "weaponFamily": "staff",
+            "type": "ultimate",
+            "rangeSqm": 5,
+            "areaRadiusSqm": 2,
+            "projectile": true,
+            "damageMultiplier": 2
+        }
+    },
+    "skillGems": {
+        "bifurcation_gem": {
+            "effect": "projectile_count",
+            "projectileCount": 2
+        },
+        "vampiric_gem": {
+            "effect": "damage_to_hp",
+            "damageToHp": 0.08
+        }
+    }
+}
