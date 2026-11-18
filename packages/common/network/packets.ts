@@ -61,7 +61,10 @@ enum Packets {
     Resource,
 
     // Hub <-> Admin
-    AdminSync
+    AdminSync,
+
+    // Optional idle-combat feature.
+    AutoHunt
 }
 
 export default Packets;

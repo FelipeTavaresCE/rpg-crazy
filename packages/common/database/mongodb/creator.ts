@@ -3,10 +3,15 @@ import Utils from '@kaetram/common/util/utils';
 import config from '@kaetram/common/config';
 
 import type Player from '@kaetram/server/src/game/entity/character/player/player';
-import type { Collection, Db } from 'mongodb';
+import type { Collection, Db, MongoClient } from 'mongodb';
 import type { Modules } from '@kaetram/common/network';
 import type { GuildData } from '@kaetram/common/network/impl/guild';
 import type { SerializedEffects } from '@kaetram/common/types/status';
+import type {
+    AutoHuntRule,
+    OfflineHuntReport,
+    OfflineHuntSnapshot
+} from '@kaetram/common/network/impl/autohunt';
 
 // Used for password reset
 export interface ResetToken {
@@ -44,6 +49,9 @@ export interface PlayerInfo {
     lastGlobalChat: number;
     guild: string;
     pet: string;
+    autoHuntSnapshot?: OfflineHuntSnapshot;
+    autoHuntReport?: OfflineHuntReport;
+    autoHuntRules?: AutoHuntRule[];
     resetToken?: ResetToken;
 }
 
@@ -54,7 +62,12 @@ export interface PlayerInfo {
  */
 
 export default class Creator {
-    public constructor(private database: Db) {}
+    private saveQueues = new Map<string, Promise<void>>();
+
+    public constructor(
+        private database: Db,
+        private client: MongoClient
+    ) {}
 
     /**
      * Takes every information about the player and saves it. Individual
@@ -63,22 +76,102 @@ export default class Creator {
      * @param player The player character we are saving.
      */
 
-    public save(player: Player): void {
+    public save(player: Player): Promise<void> {
+        let previous = this.saveQueues.get(player.username) || Promise.resolve(),
+            current = previous.then(() => this.savePlayerData(player));
+
+        this.saveQueues.set(player.username, current);
+
+        return current.finally(() => {
+            if (this.saveQueues.get(player.username) === current)
+                this.saveQueues.delete(player.username);
+        });
+    }
+
+    private async savePlayerData(player: Player): Promise<void> {
         try {
             log.debug(`Saving player information for ${player.username}.`);
 
-            this.saveInfo(player);
-            this.saveEquipment(player);
-            this.saveInventory(player);
-            this.saveBank(player);
-            this.saveQuests(player);
-            this.saveAchievements(player);
-            this.saveSkills(player);
-            this.saveStatistics(player);
-            this.saveAbilities(player);
+            await Promise.all([
+                this.saveInfo(player),
+                this.saveEquipment(player),
+                this.saveInventory(player),
+                this.saveBank(player),
+                this.saveQuests(player),
+                this.saveAchievements(player),
+                this.saveSkills(player),
+                this.saveStatistics(player),
+                this.saveAbilities(player)
+            ]);
         } catch (error: unknown) {
             log.error(`Could not save data for ${player.username}.`);
             log.error(error);
+        }
+    }
+
+    public async saveOfflineHuntSettlement(
+        player: Player,
+        snapshot: OfflineHuntSnapshot
+    ): Promise<boolean> {
+        let session = this.client.startSession();
+
+        try {
+            return (
+                (await session.withTransaction(async () => {
+                    let result = await this.database.collection('player_info').updateOne(
+                        {
+                            username: player.username,
+                            'autoHuntSnapshot.startedAt': snapshot.startedAt,
+                            'autoHuntSnapshot.seed': snapshot.seed
+                        },
+                        {
+                            $set: {
+                                hitPoints: player.hitPoints.getHitPoints(),
+                                mana: player.mana.getMana(),
+                                autoHuntReport: player.autoHuntReport,
+                                autoHuntRules: player.autoHuntRules
+                            },
+                            $unset: { autoHuntSnapshot: '' }
+                        },
+                        { session }
+                    );
+
+                    if (result.modifiedCount !== 1) return false;
+
+                    await this.database
+                        .collection('player_inventory')
+                        .updateOne(
+                            { username: player.username },
+                            { $set: player.inventory.serialize() },
+                            { upsert: true, session }
+                        );
+                    await this.database
+                        .collection('player_equipment')
+                        .updateOne(
+                            { username: player.username },
+                            { $set: player.equipment.serialize() },
+                            { upsert: true, session }
+                        );
+                    await this.database
+                        .collection('player_skills')
+                        .updateOne(
+                            { username: player.username },
+                            { $set: player.skills.serialize() },
+                            { upsert: true, session }
+                        );
+                    await this.database
+                        .collection('player_statistics')
+                        .updateOne(
+                            { username: player.username },
+                            { $set: player.statistics.serialize() },
+                            { upsert: true, session }
+                        );
+
+                    return true;
+                })) === true
+            );
+        } finally {
+            await session.endSession();
         }
     }
 
@@ -87,11 +180,13 @@ export default class Creator {
      * See `PlayerInfo` for more information.
      */
 
-    private saveInfo(player: Player): void {
+    private saveInfo(player: Player): Promise<void> {
         let collection = this.database.collection('player_info');
 
-        this.getPlayerWithHash(player, (playerInfo: PlayerInfo) => {
-            this.updateCollection(collection, player.username, playerInfo);
+        return new Promise((resolve) => {
+            this.getPlayerWithHash(player, (playerInfo: PlayerInfo) => {
+                this.updateCollection(collection, player.username, playerInfo).then(resolve);
+            });
         });
     }
 
@@ -100,11 +195,11 @@ export default class Creator {
      * stores it into the database.
      */
 
-    private saveEquipment(player: Player): void {
+    private saveEquipment(player: Player): Promise<void> {
         let collection = this.database.collection('player_equipment');
 
         // Pass the serialized equipment as parameter.
-        this.updateCollection(collection, player.username, player.equipment.serialize());
+        return this.updateCollection(collection, player.username, player.equipment.serialize());
     }
 
     /**
@@ -112,10 +207,10 @@ export default class Creator {
      * stores it into the database.
      */
 
-    private saveInventory(player: Player): void {
+    private saveInventory(player: Player): Promise<void> {
         let collection = this.database.collection('player_inventory');
 
-        this.updateCollection(collection, player.username, player.inventory.serialize());
+        return this.updateCollection(collection, player.username, player.inventory.serialize());
     }
 
     /**
@@ -123,60 +218,60 @@ export default class Creator {
      * stores it into the database.
      */
 
-    private saveBank(player: Player): void {
+    private saveBank(player: Player): Promise<void> {
         let collection = this.database.collection('player_bank');
 
-        this.updateCollection(collection, player.username, player.bank.serialize());
+        return this.updateCollection(collection, player.username, player.bank.serialize());
     }
 
     /**
      * Serializes the quest data and stores it in the database.
      */
 
-    private saveQuests(player: Player): void {
+    private saveQuests(player: Player): Promise<void> {
         let collection = this.database.collection('player_quests');
 
-        this.updateCollection(collection, player.username, player.quests.serialize());
+        return this.updateCollection(collection, player.username, player.quests.serialize());
     }
 
     /**
      * Serializes the achievement data and stores it into the database.
      */
 
-    private saveAchievements(player: Player): void {
+    private saveAchievements(player: Player): Promise<void> {
         let collection = this.database.collection('player_achievements');
 
-        this.updateCollection(collection, player.username, player.achievements.serialize());
+        return this.updateCollection(collection, player.username, player.achievements.serialize());
     }
 
     /**
      * Serializes all the skills and stores the data into the database.
      */
 
-    private saveSkills(player: Player): void {
+    private saveSkills(player: Player): Promise<void> {
         let collection = this.database.collection('player_skills');
 
-        this.updateCollection(collection, player.username, player.skills.serialize());
+        return this.updateCollection(collection, player.username, player.skills.serialize());
     }
 
     /**
      * Serializes the player's statistics and stores it into the database.
      */
 
-    private saveStatistics(player: Player): void {
+    private saveStatistics(player: Player): Promise<void> {
         let collection = this.database.collection('player_statistics');
 
-        this.updateCollection(collection, player.username, player.statistics.serialize());
+        return this.updateCollection(collection, player.username, player.statistics.serialize());
     }
 
     /**
      * Serializes the player's abilities and stores them into the database.
      */
 
-    private saveAbilities(player: Player): void {
+    private saveAbilities(player: Player): Promise<void> {
         let collection = this.database.collection('player_abilities');
 
-        this.updateCollection(collection, player.username, player.abilities.serialize());
+        return this.updateCollection(collection, player.username, player.abilities.serialize());
     }
 
     /**
@@ -210,8 +305,8 @@ export default class Creator {
      * @param data The data that we are saving.
      */
 
-    private updateCollection<S>(collection: Collection, username: string, data: S) {
-        collection
+    private updateCollection<S>(collection: Collection, username: string, data: S): Promise<void> {
+        return collection
             .updateOne({ username }, { $set: data }, { upsert: true })
             .then((result) => {
                 if (!result)
@@ -302,6 +397,9 @@ export default class Creator {
             lastGlobalChat: player.lastGlobalChat,
             guild: player.guild,
             pet: player.pet ? player.pet.key : '',
+            autoHuntSnapshot: player.autoHuntSnapshot,
+            autoHuntReport: player.autoHuntReport,
+            autoHuntRules: player.autoHuntRules,
             resetToken: undefined // Save token as undefined to prevent it from being saved.
         };
     }

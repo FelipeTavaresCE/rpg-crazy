@@ -26,6 +26,7 @@ import type Rock from '../entity/objects/resource/impl/rock';
 import type FishSpot from '../entity/objects/resource/impl/fishspot';
 import type Foraging from '../entity/objects/resource/impl/foraging';
 import type Store from '../menu/store';
+import type { AutoHuntPacketData } from '@kaetram/common/network/impl/autohunt';
 
 interface TargetData {
     sprite: Sprite;
@@ -119,6 +120,10 @@ export default class InputController {
         this.friends.onMessage((username: string) => this.chatHandler.privateMessage(username));
 
         this.targetAnimation.setSpeed(150);
+    }
+
+    public sendAutoHunt(data: AutoHuntPacketData): void {
+        this.game.socket.send(Packets.AutoHunt, data);
     }
 
     /**

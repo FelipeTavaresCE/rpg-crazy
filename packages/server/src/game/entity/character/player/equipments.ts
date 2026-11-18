@@ -185,11 +185,11 @@ export default class Equipments {
      * that can be used up throughout combat.
      */
 
-    public decrementArrows(): void {
+    public decrementArrows(count = 1): void {
         let arrows = this.get(Modules.Equipment.Arrows);
 
-        // Remove 1 arrow from the stack.
-        arrows.count -= 1;
+        // Remove the requested amount from the stack.
+        arrows.count -= count;
 
         // If there are no more arrows, we empty the equipment.
         if (arrows.count < 1) arrows.empty();

@@ -14,14 +14,19 @@ import Incoming from './incoming';
 import Mana from '../points/mana';
 import Character from '../character';
 import Item from '../../objects/item';
+import rawItemData from '../../../../../data/items.json';
+import rawMobData from '../../../../../data/mobs.json';
+import dropTables from '../../../../../data/tables.json';
 import Formulas from '../../../../info/formulas';
+import { getPvEDamage } from '../../../../info/pve-formula';
 
 import Utils from '@kaetram/common/util/utils';
 import log from '@kaetram/common/util/log';
 import config from '@kaetram/common/config';
 import { PacketType } from '@kaetram/common/network/modules';
-import { Opcodes, Modules } from '@kaetram/common/network';
+import { Opcodes, Modules, Packets } from '@kaetram/common/network';
 import { Team } from '@kaetram/common/api/minigame';
+import Packet from '@kaetram/common/network/packet';
 import {
     CameraPacket,
     ChatPacket,
@@ -44,6 +49,8 @@ import {
     WelcomePacket
 } from '@kaetram/common/network/impl';
 
+import type LootBag from '../../objects/lootbag';
+import type Mob from '../mob/mob';
 import type Pet from '../pet/pet';
 import type NPC from '../../npc/npc';
 import type Skill from './skill/skill';
@@ -54,14 +61,23 @@ import type Regions from '../../../map/regions';
 import type Connection from '../../../../network/connection';
 import type Minigame from '../../../minigames/minigame';
 import type Entities from '../../../../controllers/entities';
-import type Packet from '@kaetram/common/network/packet';
 import type MongoDB from '@kaetram/common/database/mongodb/mongodb';
 import type { EntityDisplayInfo } from '@kaetram/common/types/entity';
-import type { Bonuses, Stats } from '@kaetram/common/types/item';
+import type { Bonuses, ItemData, Stats } from '@kaetram/common/types/item';
 import type { ProcessedDoor } from '@kaetram/common/types/map';
+import type { MobDrop, MobDropTable, RawMobData } from '@kaetram/common/types/mob';
 import type { PlayerData } from '@kaetram/common/network/impl/player';
 import type { PointerData } from '@kaetram/common/network/impl/pointer';
 import type { PlayerInfo } from '@kaetram/common/database/mongodb/creator';
+import type {
+    AutoHuntPacketData,
+    AutoHuntPosture,
+    AutoHuntRule,
+    OfflineHuntHealingItem,
+    OfflineHuntMob,
+    OfflineHuntReport,
+    OfflineHuntSnapshot
+} from '@kaetram/common/network/impl/autohunt';
 
 type KillCallback = (character: Character) => void;
 type NPCTalkCallback = (npc: NPC) => void;
@@ -115,6 +131,11 @@ export default class Player extends Character {
     public pickingUpPet = false; // Used to doubly ensure the player is not spamming the pickup button.
     public requestedPing = false;
     public overrideMovementSpeed = -1;
+    public autoHuntEnabled = false;
+    public autoHuntRules: AutoHuntRule[] = ['heal-low', 'guard-low', 'advance-high'];
+    public autoHuntPosture: AutoHuntPosture = 'balance';
+    public autoHuntSnapshot?: OfflineHuntSnapshot;
+    public autoHuntReport?: OfflineHuntReport;
 
     // Player info
     public username = '';
@@ -149,8 +170,10 @@ export default class Player extends Character {
     public lastGlobalChat = 0;
     private lastNotify = 0;
     private lastEdible = 0;
+    private autoHuntInterval: NodeJS.Timeout | null = null;
 
     private currentSong: string | undefined;
+    private autoHuntRegion = -1;
 
     // Minigame variables
     public minigameArea: Area | undefined = undefined;
@@ -251,6 +274,10 @@ export default class Player extends Character {
         this.userAgent = data.userAgent;
         this.regionsLoaded = data.regionsLoaded || [];
         this.lastGlobalChat = data.lastGlobalChat || 0;
+        this.autoHuntRules = data.autoHuntRules || this.autoHuntRules;
+        this.autoHuntEnabled = false;
+        this.autoHuntSnapshot = data.autoHuntSnapshot;
+        this.autoHuntReport = data.autoHuntReport;
 
         this.setPoison(data.poison.type, Date.now() - data.poison.remaining);
         this.setLastWarp(data.lastWarp);
@@ -276,7 +303,7 @@ export default class Player extends Character {
         await this.loadQuests();
         await this.loadAchievements();
 
-        this.intro();
+        await this.intro();
 
         // Connect the player to their guild if they are in one.
         if (this.guild) this.world.guilds.connect(this, this.guild);
@@ -358,7 +385,12 @@ export default class Player extends Character {
      * being initialized, so we have to check for that.
      */
 
-    public handleClose(): void {
+    public async handleClose(): Promise<void> {
+        if (this.autoHuntEnabled && this.authenticated && !this.isGuest)
+            this.autoHuntSnapshot = this.createOfflineHuntSnapshot();
+
+        this.stopAutoHunt();
+
         // Stops the character-based intervals
         this.stop();
 
@@ -401,7 +433,7 @@ export default class Player extends Character {
         this.world.syncGuildMembers(this.guild, this.username, true);
 
         // Save the player if authenticated and ready.
-        if (this.authenticated && this.ready) this.save();
+        if (this.authenticated && this.ready) await this.save();
 
         // Remove the player from the region.
         this.entities.removePlayer(this);
@@ -416,7 +448,7 @@ export default class Player extends Character {
      * to the client.
      */
 
-    public intro(): void {
+    public async intro(): Promise<void> {
         // Reset hitpoints if they are unitialized.
         if (this.hitPoints.getHitPoints() < 0)
             this.hitPoints.setHitPoints(this.hitPoints.getMaxHitPoints());
@@ -437,7 +469,20 @@ export default class Player extends Character {
 
         this.entities.addPlayer(this);
 
+        try {
+            await this.settleOfflineHunt();
+        } catch (error) {
+            log.error(`Unable to claim offline hunt for ${this.username}.`);
+            log.error(error);
+            return this.connection.reject('error');
+        }
+
         this.send(new WelcomePacket(this.serialize(false, true, true)));
+
+        if (this.autoHuntReport) {
+            this.autoHuntReport = undefined;
+            this.save();
+        }
     }
 
     /**
@@ -770,6 +815,602 @@ export default class Player extends Character {
 
         // Start combat with the target.
         this.combat.attack(target);
+    }
+
+    public configureAutoHunt(data: AutoHuntPacketData): void {
+        if (data.action !== 'configure') return;
+
+        if (Array.isArray(data.rules)) {
+            let validRules = new Set<AutoHuntRule>([
+                'heal-low',
+                'guard-low',
+                'advance-high',
+                'balance-low',
+                'balance-high',
+                'disabled'
+            ]);
+            this.autoHuntRules = data.rules
+                .slice(0, 3)
+                .filter((rule): rule is AutoHuntRule => validRules.has(rule));
+        }
+
+        if (!data.enabled) {
+            this.stopAutoHunt();
+            this.save();
+            return this.sendAutoHuntState();
+        }
+
+        if (
+            this.isDead() ||
+            this.pvp ||
+            this.inMinigame() ||
+            !this.quests.isTutorialFinished() ||
+            !this.hasEligibleMobNearby()
+        ) {
+            this.notify('Auto-Hunt is unavailable in this area or state.');
+            return this.sendAutoHuntState();
+        }
+
+        this.autoHuntRegion = this.region;
+        this.autoHuntEnabled = true;
+        this.autoHuntSnapshot = undefined;
+
+        if (!this.autoHuntInterval)
+            this.autoHuntInterval = setInterval(() => this.updateAutoHunt(), 100);
+
+        this.sendAutoHuntState();
+        this.save();
+    }
+
+    private hasEligibleMobNearby(): boolean {
+        let found = false;
+        this.world.entities.forEachMob((mob) => {
+            if (
+                !found &&
+                !mob.isDead() &&
+                mob.region === this.region &&
+                mob.getDistance(this) <= 12 &&
+                this.canAttack(mob)
+            )
+                found = true;
+        });
+
+        return found;
+    }
+
+    private updateAutoHunt(): void {
+        if (
+            !this.autoHuntEnabled ||
+            this.isDead() ||
+            this.isStunned() ||
+            this.pvp ||
+            this.inMinigame() ||
+            this.region !== this.autoHuntRegion ||
+            this.trade.activeTrade
+        ) {
+            this.stopAutoHunt();
+            return this.sendAutoHuntState();
+        }
+
+        this.connection.refreshTimeout();
+        this.evaluateGambits();
+
+        if (this.autoHuntPosture === 'guard')
+            this.hitPoints.increment(this.hitPoints.getMaxHitPoints() * 0.005);
+
+        this.collectNearbyDrops();
+
+        if (this.target?.isMob() && !this.target.isDead()) return;
+
+        let closest: Mob | undefined;
+        this.world.entities.forEachMob((mob) => {
+            if (
+                mob.isDead() ||
+                mob.region !== this.region ||
+                mob.getDistance(this) > 12 ||
+                !this.canAttack(mob)
+            )
+                return;
+
+            if (!closest || mob.getDistance(this) < closest.getDistance(this)) closest = mob;
+        });
+
+        if (closest) {
+            this.combat.attack(closest);
+            this.sendAutoHuntState(closest.instance);
+        }
+    }
+
+    private evaluateGambits(): void {
+        let healthRatio = this.hitPoints.getHitPoints() / this.hitPoints.getMaxHitPoints();
+
+        for (let rule of this.autoHuntRules) {
+            if (rule === 'heal-low' && healthRatio < 0.35 && this.canEat())
+                for (let index = 0; index < this.inventory.size; index++) {
+                    let slot = this.inventory.get(index);
+                    if (!slot?.key) continue;
+
+                    let item = this.inventory.getItem(slot);
+                    if (!item.edible || !item.plugin) continue;
+
+                    let hitPoints = this.hitPoints.getHitPoints(),
+                        mana = this.mana.getMana();
+
+                    this.handleContainerSelect(
+                        Modules.ContainerType.Inventory,
+                        Modules.ContainerType.Inventory,
+                        index,
+                        Modules.ContainerType.Inventory,
+                        index
+                    );
+                    if (this.hitPoints.getHitPoints() > hitPoints || this.mana.getMana() > mana)
+                        return;
+                }
+
+            let posture: AutoHuntPosture | undefined;
+            if (rule === 'guard-low' && healthRatio < 0.5) posture = 'guard';
+            else if (rule === 'advance-high' && healthRatio >= 0.5) posture = 'advance';
+            else if (rule === 'balance-low' && healthRatio < 0.5) posture = 'balance';
+            else if (rule === 'balance-high' && healthRatio >= 0.5) posture = 'balance';
+
+            if (posture && posture !== this.autoHuntPosture) {
+                this.autoHuntPosture = posture;
+                this.sendAutoHuntState();
+                return;
+            }
+        }
+    }
+
+    private collectNearbyDrops(): void {
+        this.world.entities.forEachEntity((entity) => {
+            if (entity.getDistance(this) > 1 || !this.inventory.hasSpace()) return;
+
+            if (entity.isItem() && entity.dropped && entity.isOwner(this.username)) {
+                this.statistics.addDrop(entity.key, entity.count);
+                this.inventory.add(entity);
+            } else if (entity.isLootBag()) (entity as LootBag).collect(this);
+        });
+    }
+
+    private sendAutoHuntState(target?: string): void {
+        this.send(
+            new Packet(Packets.AutoHunt, undefined, {
+                action: 'state',
+                enabled: this.autoHuntEnabled,
+                rules: this.autoHuntRules,
+                posture: this.autoHuntPosture,
+                target
+            } satisfies AutoHuntPacketData)
+        );
+    }
+
+    private stopAutoHunt(): void {
+        this.autoHuntEnabled = false;
+        if (this.autoHuntInterval) clearInterval(this.autoHuntInterval);
+        this.autoHuntInterval = null;
+        if (this.autoHuntPosture !== 'balance') this.autoHuntPosture = 'balance';
+    }
+
+    private createOfflineHuntSnapshot(): OfflineHuntSnapshot | undefined {
+        if (!this.database.creator) return;
+
+        let population: { [key: string]: OfflineHuntMob } = {},
+            healingItems: OfflineHuntHealingItem[] = [],
+            rawItems = rawItemData as { [key: string]: ItemData };
+
+        for (let index = 0; index < this.inventory.size; index++) {
+            let slot = this.inventory.get(index);
+            if (!slot?.key) continue;
+
+            let item = this.inventory.getItem(slot),
+                definition = rawItems[slot.key];
+            if (!item.edible || !item.plugin || !definition) continue;
+
+            let hitPoints = definition.healPercent
+                    ? (this.hitPoints.getMaxHitPoints() * definition.healPercent) / 100
+                    : definition.healAmount || 0,
+                mana = definition.manaAmount || 0;
+            if (hitPoints > 0 || mana > 0)
+                healingItems.push({ key: slot.key, index, hitPoints, mana, count: item.count });
+        }
+
+        this.world.entities.forEachMob((mob) => {
+            if (mob.isDead() || mob.region !== this.region || mob.getDistance(this) > 12) return;
+
+            let existing = population[mob.key],
+                attackStats = mob.getAttackStats(),
+                defenseStats = mob.getDefenseStats(),
+                attack = Math.max(
+                    attackStats.crush,
+                    attackStats.slash,
+                    attackStats.stab,
+                    attackStats.magic,
+                    attackStats.archery
+                ),
+                defense = this.isMagic()
+                    ? defenseStats.magic
+                    : this.isArcher()
+                    ? defenseStats.archery
+                    : this.getAttackStyle() === Modules.AttackStyle.Stab
+                    ? defenseStats.stab
+                    : this.getAttackStyle() === Modules.AttackStyle.Crush
+                    ? defenseStats.crush
+                    : defenseStats.slash;
+
+            if (existing) existing.count++;
+            else
+                population[mob.key] = {
+                    key: mob.key,
+                    hitPoints: mob.hitPoints.getMaxHitPoints(),
+                    level: mob.level,
+                    defense,
+                    attack,
+                    attackRate: mob.getAttackRate(),
+                    respawnDelay: mob.respawnDelay,
+                    count: 1
+                };
+        });
+
+        let mobs = Object.values(population);
+        if (mobs.length === 0) return;
+
+        return {
+            startedAt: Date.now(),
+            region: this.region,
+            seed: [...this.username].reduce(
+                (seed, char) => (seed * 31 + (char.codePointAt(0) ?? 0)) >>> 0,
+                Date.now() >>> 0
+            ),
+            attackBonus: this.getDamageBonus(),
+            attribute: this.getSkillDamageLevel(),
+            attackRate: Math.max(
+                100,
+                this.equipment.getWeapon().attackRate -
+                    (this.status.has(Modules.Effects.DualistsMark) ? 200 : 0)
+            ),
+            attackerLevel: this.level,
+            maxHitPoints: this.hitPoints.getMaxHitPoints(),
+            hitPoints: this.hitPoints.getHitPoints(),
+            mana: this.mana.getMana(),
+            resourceType: this.isMagic() ? 'mana' : this.isArcher() ? 'arrows' : 'none',
+            resourceCount: this.isMagic()
+                ? this.mana.getMana()
+                : this.isArcher()
+                ? this.equipment.getArrows().count
+                : 0,
+            resourcePerAttack: this.isMagic()
+                ? this.equipment.getWeapon().manaCost
+                : this.isArcher()
+                ? 1
+                : 0,
+            dropProbability: this.world.getDropProbability(),
+            balanceVersion: 1,
+            posture: this.autoHuntPosture,
+            rules: [...this.autoHuntRules],
+            healingItems,
+            mobs
+        };
+    }
+
+    private async settleOfflineHunt(): Promise<void> {
+        let snapshot = this.autoHuntSnapshot;
+        if (!snapshot) return;
+
+        if (!this.authenticated || this.isGuest || !this.database.creator) return;
+
+        if (
+            !Number.isFinite(snapshot.startedAt) ||
+            !Array.isArray(snapshot.mobs) ||
+            snapshot.mobs.length > 64
+        )
+            return;
+
+        let elapsed = Math.max(0, Math.min(28_800_000, Date.now() - snapshot.startedAt)),
+            seconds = elapsed / 1000,
+            mobs = snapshot.mobs.filter(
+                (mob) =>
+                    Number.isFinite(mob.hitPoints) &&
+                    Number.isFinite(mob.count) &&
+                    mob.hitPoints > 0 &&
+                    mob.count > 0 &&
+                    mob.count <= 100
+            ),
+            population = mobs.reduce((total, mob) => total + mob.count, 0);
+
+        if (population < 1) return;
+
+        let offlinePosture = snapshot.posture,
+            healthRatio = snapshot.hitPoints / Math.max(1, snapshot.maxHitPoints);
+
+        for (let rule of snapshot.rules || []) {
+            if (rule === 'heal-low' && healthRatio < 0.35) continue;
+            if (rule === 'guard-low' && healthRatio < 0.5) {
+                offlinePosture = 'guard';
+                break;
+            }
+            if (rule === 'advance-high' && healthRatio >= 0.5) {
+                offlinePosture = 'advance';
+                break;
+            }
+            if (
+                (rule === 'balance-low' && healthRatio < 0.5) ||
+                (rule === 'balance-high' && healthRatio >= 0.5)
+            ) {
+                offlinePosture = 'balance';
+                break;
+            }
+        }
+
+        let average = (select: (mob: OfflineHuntMob) => number): number =>
+                mobs.reduce((total, mob) => total + select(mob) * mob.count, 0) / population,
+            averageHP = average((mob) => mob.hitPoints),
+            averageDefense = average((mob) => mob.defense),
+            averageAttack = average((mob) => mob.attack),
+            averageMobLevel = average((mob) => mob.level),
+            averageAttackRate = Math.max(
+                100,
+                average((mob) => mob.attackRate)
+            ),
+            effectiveAttackRate =
+                offlinePosture === 'advance'
+                    ? Math.max(100, Math.floor(snapshot.attackRate / 1.15))
+                    : Math.max(100, snapshot.attackRate),
+            healingBudget = (snapshot.rules || []).includes('heal-low')
+                ? (snapshot.healingItems || [])
+                      .filter(
+                          (item) =>
+                              Number.isFinite(item.hitPoints) &&
+                              Number.isFinite(item.mana) &&
+                              Number.isFinite(item.count) &&
+                              item.count > 0
+                      )
+                      .reduce(
+                          (total, item) => ({
+                              hitPoints: total.hitPoints + item.hitPoints * item.count,
+                              mana: total.mana + item.mana * item.count
+                          }),
+                          { hitPoints: 0, mana: 0 }
+                      )
+                : { hitPoints: 0, mana: 0 },
+            damagePerHit =
+                snapshot.attackBonus + snapshot.attribute * 1.5 > 0
+                    ? getPvEDamage({
+                          attackBonus: snapshot.attackBonus,
+                          attribute: snapshot.attribute,
+                          defense: averageDefense,
+                          attackerLevel: snapshot.attackerLevel,
+                          posture: offlinePosture
+                      })
+                    : 0,
+            dps = damagePerHit * (1000 / effectiveAttackRate),
+            baseKillTime = dps > 0 ? averageHP / dps + 2.5 : Infinity,
+            attacksPerKill = Math.max(1, Math.ceil((baseKillTime * 1000) / effectiveAttackRate)),
+            respawnLimit = mobs.reduce(
+                (total, mob) => total + mob.count * (elapsed / Math.max(1000, mob.respawnDelay)),
+                0
+            ),
+            guardRegen = offlinePosture === 'guard' ? snapshot.maxHitPoints * 0.05 : 0,
+            mobDamagePerAttack =
+                averageAttack > 0
+                    ? getPvEDamage({
+                          attackBonus: averageAttack,
+                          attribute: 0,
+                          defense:
+                              this.getDefenseStats().slash *
+                              (offlinePosture === 'guard'
+                                  ? 1.4
+                                  : offlinePosture === 'advance'
+                                  ? 0.8
+                                  : 1),
+                          attackerLevel: Math.max(1, averageMobLevel)
+                      })
+                    : 0,
+            damageTakenPerKill =
+                mobDamagePerAttack *
+                Math.max(1, Math.ceil((baseKillTime * 1000) / Math.max(100, averageAttackRate))),
+            recoveryTime = guardRegen > 0 ? damageTakenPerKill / guardRegen : 0,
+            killTime = baseKillTime + recoveryTime,
+            survivalLimit =
+                damageTakenPerKill > 0
+                    ? Math.floor(
+                          (snapshot.hitPoints + healingBudget.hitPoints + guardRegen * seconds) /
+                              damageTakenPerKill
+                      )
+                    : Infinity,
+            resourceLimit =
+                snapshot.resourcePerAttack > 0
+                    ? Math.floor(
+                          (snapshot.resourceCount +
+                              (snapshot.resourceType === 'mana' ? healingBudget.mana : 0)) /
+                              (attacksPerKill * snapshot.resourcePerAttack)
+                      )
+                    : Infinity,
+            kills =
+                dps > 0 && Number.isFinite(killTime)
+                    ? Math.max(
+                          0,
+                          Math.min(
+                              Math.floor(seconds / killTime),
+                              Math.floor(respawnLimit),
+                              survivalLimit,
+                              resourceLimit
+                          )
+                      )
+                    : 0,
+            damage = Math.floor(kills * averageHP),
+            experience = damage * this.world.getExperiencePerHit(),
+            previousLevel = this.skills.getCombatLevel();
+
+        if (damage > 0) this.handleExperience(damage);
+
+        let consumedAttacks = kills * attacksPerKill;
+        if (snapshot.resourceType === 'mana')
+            this.mana.decrement(consumedAttacks * snapshot.resourcePerAttack);
+        else if (snapshot.resourceType === 'arrows')
+            this.equipment.decrementArrows(consumedAttacks);
+
+        let healingHitPoints = 0,
+            healingMana = 0,
+            missingHealing =
+                (snapshot.rules || []).includes('heal-low') && kills > 0 && damageTakenPerKill > 0
+                    ? Math.max(
+                          0,
+                          kills * damageTakenPerKill - snapshot.hitPoints - guardRegen * elapsed
+                      )
+                    : 0,
+            missingMana =
+                (snapshot.rules || []).includes('heal-low') &&
+                snapshot.resourceType === 'mana' &&
+                snapshot.resourcePerAttack > 0
+                    ? Math.max(
+                          0,
+                          consumedAttacks * snapshot.resourcePerAttack - snapshot.resourceCount
+                      )
+                    : 0;
+
+        for (let item of snapshot.healingItems || []) {
+            let used = 0;
+            while (
+                used < item.count &&
+                (missingHealing > 0 || missingMana > 0) &&
+                (item.hitPoints > 0 || item.mana > 0)
+            ) {
+                if (missingHealing > 0 && item.hitPoints > 0) {
+                    missingHealing = Math.max(0, missingHealing - item.hitPoints);
+                    healingHitPoints += item.hitPoints;
+                }
+                if (missingMana > 0 && item.mana > 0) {
+                    missingMana = Math.max(0, missingMana - item.mana);
+                    healingMana += item.mana;
+                }
+                used++;
+            }
+
+            if (used > 0) this.inventory.remove(item.index, used);
+        }
+
+        if (healingHitPoints > 0) this.hitPoints.increment(healingHitPoints);
+        if (healingMana > 0) this.mana.increment(healingMana);
+        if (damageTakenPerKill > 0 && kills > 0)
+            this.hitPoints.decrement(
+                Math.max(0, kills * damageTakenPerKill - guardRegen * elapsed)
+            );
+
+        let result = this.applyOfflineDrops(snapshot, kills),
+            reason =
+                kills === 0
+                    ? dps <= 0
+                        ? 'Dano efetivo insuficiente para continuar.'
+                        : 'A caçada não encontrou capacidade ou recursos suficientes.'
+                    : kills < Math.floor(seconds / killTime)
+                    ? 'A caçada foi limitada pela população ou pelos recursos.'
+                    : 'A simulação atingiu o limite de tempo disponível.';
+
+        this.autoHuntReport = {
+            duration: elapsed,
+            kills,
+            experience,
+            levelsGained: Math.max(0, this.skills.getCombatLevel() - previousLevel),
+            lootCollected: result.collected,
+            lootOverflow: result.overflow,
+            reason
+        };
+
+        this.autoHuntSnapshot = undefined;
+        if (!(await this.database.creator.saveOfflineHuntSettlement(this, snapshot))) {
+            this.autoHuntSnapshot = snapshot;
+            throw new Error(`Offline hunt snapshot for ${this.username} was already settled.`);
+        }
+    }
+
+    private applyOfflineDrops(
+        snapshot: OfflineHuntSnapshot,
+        kills: number
+    ): { collected: number; overflow: number } {
+        if (kills < 1) return { collected: 0, overflow: 0 };
+
+        let randomState = snapshot.seed || 1,
+            random = (maximum: number): number => {
+                randomState ^= randomState << 13;
+                randomState ^= randomState >>> 17;
+                randomState ^= randomState << 5;
+                return (randomState >>> 0) % maximum;
+            },
+            randomRange = (minimum: number, maximum: number): number =>
+                minimum + random(maximum - minimum + 1),
+            collected = 0,
+            overflow = 0,
+            rawMobs = rawMobData as RawMobData,
+            population = snapshot.mobs.reduce((total, mob) => total + mob.count, 0);
+        if (population < 1) return { collected: 0, overflow: 0 };
+
+        for (let kill = 0; kill < kills; kill++) {
+            let target = random(population),
+                mob = snapshot.mobs.find((entry) => {
+                    target -= entry.count;
+                    return target < 0;
+                });
+            if (!mob) continue;
+
+            let definition = rawMobs[mob.key];
+
+            if (!definition) continue;
+
+            let dropGroups: MobDrop[][] = [];
+            if (definition.drops) dropGroups.push(definition.drops);
+
+            for (let tableKey of definition.dropTables || []) {
+                let table = (dropTables as { [key: string]: MobDropTable })[tableKey];
+                if (
+                    !table ||
+                    (table.quest && !this.quests.get(table.quest)?.isFinished()) ||
+                    (table.achievement && !this.achievements.get(table.achievement)?.isFinished())
+                )
+                    continue;
+                dropGroups.push(table.drops);
+            }
+
+            for (let group of dropGroups) {
+                if (group.length === 0) continue;
+
+                let drop = group[random(group.length)];
+                if (
+                    (drop.quest && !this.quests.get(drop.quest)?.isFinished()) ||
+                    (drop.achievement && !this.achievements.get(drop.achievement)?.isFinished()) ||
+                    random(Math.max(1, snapshot.dropProbability)) >= drop.chance
+                )
+                    continue;
+
+                let count = drop.count || 1;
+                switch (drop.key) {
+                    case 'gold': {
+                        count = randomRange(mob.level, mob.level * 10);
+                        break;
+                    }
+                    case 'flask': {
+                        count = randomRange(1, 3);
+                        break;
+                    }
+                    case 'arrow':
+                    case 'feather': {
+                        count = randomRange(1, mob.level);
+                        break;
+                    }
+                    case 'firearrow': {
+                        count = randomRange(1, Math.ceil(mob.level / 2));
+                        break;
+                    }
+                }
+                if (drop.variable) count = randomRange(1, count);
+
+                let added = this.inventory.add(new Item(drop.key, -1, -1, false, count));
+                if (added > 0) this.statistics.addDrop(drop.key, added);
+                collected += added;
+                overflow += Math.max(0, count - added);
+            }
+        }
+
+        return { collected, overflow };
     }
 
     /**
@@ -1115,6 +1756,9 @@ export default class Player extends Character {
      */
 
     public handleMovementRequest(x: number, y: number, target: string): void {
+        if (this.autoHuntEnabled && target !== this.target?.instance)
+            this.configureAutoHunt({ action: 'configure', enabled: false });
+
         // Immediately clear the target to prevent combat from sticking to previous target.
         if (target !== this.target?.instance) this.target = undefined;
 
@@ -2354,10 +2998,10 @@ export default class Player extends Character {
      * Saves the player data to the database.
      */
 
-    public save(): void {
-        if (config.skipDatabase || this.isGuest || !this.ready) return;
+    public save(): Promise<void> {
+        if (config.skipDatabase || this.isGuest || !this.ready) return Promise.resolve();
 
-        this.database.creator?.save(this);
+        return this.database.creator?.save(this) || Promise.resolve();
     }
 
     /**
@@ -2398,6 +3042,10 @@ export default class Player extends Character {
             data.mana = this.mana.getMana();
             data.maxMana = this.mana.getMaxMana();
         }
+
+        data.autoHuntEnabled = this.autoHuntEnabled;
+        data.autoHuntRules = this.autoHuntRules;
+        data.autoHuntReport = this.autoHuntReport;
 
         return data;
     }
@@ -2645,11 +3293,15 @@ export default class Player extends Character {
      */
 
     public override getAttackRate(): number {
-        // Dualists mark status effect boosts attack speed by 200 milliseconds.
-        if (this.status.has(Modules.Effects.DualistsMark))
-            return this.equipment.getWeapon().attackRate - 200;
+        let rate = this.equipment.getWeapon().attackRate;
 
-        return this.equipment.getWeapon().attackRate;
+        // Dualists mark status effect boosts attack speed by 200 milliseconds.
+        if (this.status.has(Modules.Effects.DualistsMark)) rate -= 200;
+
+        if (this.autoHuntEnabled && this.target?.isMob() && this.autoHuntPosture === 'advance')
+            return Math.max(100, Math.floor(rate / 1.15));
+
+        return rate;
     }
 
     /**

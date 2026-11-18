@@ -3,6 +3,11 @@ import Utils from '../utils/util';
 import type Character from '../entity/character/character';
 import type Entity from '../entity/entity';
 import type InputController from './input';
+import type {
+    AutoHuntPacketData,
+    AutoHuntRule,
+    OfflineHuntReport
+} from '@kaetram/common/network/impl/autohunt';
 
 export default class HUDController {
     private hovering!: Entity | undefined;
@@ -14,9 +19,89 @@ export default class HUDController {
     private health: HTMLElement = this.attackInfo.querySelector('.health')!;
 
     public updateCallback?: (id: string, data: number) => void;
+    private autoHuntEnabled = false;
+    private autoHuntButton = document.querySelector<HTMLButtonElement>('#auto-hunt-toggle')!;
+    private postureLabel = document.querySelector<HTMLElement>('#auto-hunt-posture')!;
+    private gambitRules = [...document.querySelectorAll<HTMLSelectElement>('.auto-hunt-rule')];
+    private offlineReport = document.querySelector<HTMLDialogElement>('#offline-report')!;
 
     public constructor(private input: InputController) {
         this.onUpdate(this.handleUpdate.bind(this));
+
+        this.autoHuntButton.addEventListener('click', () =>
+            this.input.sendAutoHunt({
+                action: 'configure',
+                enabled: !this.autoHuntEnabled,
+                rules: this.getGambitRules()
+            })
+        );
+
+        for (let rule of this.gambitRules)
+            rule.addEventListener('change', () =>
+                this.input.sendAutoHunt({
+                    action: 'configure',
+                    enabled: this.autoHuntEnabled,
+                    rules: this.getGambitRules()
+                })
+            );
+
+        this.offlineReport
+            .querySelector<HTMLButtonElement>('.offline-report-close')!
+            .addEventListener('click', () => this.offlineReport.close());
+    }
+
+    public updateAutoHunt(data: AutoHuntPacketData): void {
+        if (data.action !== 'state') return;
+
+        this.autoHuntEnabled = !!data.enabled;
+        this.autoHuntButton.textContent = this.autoHuntEnabled ? 'Parar Auto-Hunt' : 'Auto-Hunt';
+        this.autoHuntButton.setAttribute('aria-pressed', `${this.autoHuntEnabled}`);
+        this.postureLabel.textContent = `Postura: ${this.getPostureName(data.posture)}`;
+
+        if (data.rules)
+            for (let [index, value] of data.rules.entries())
+                if (this.gambitRules[index]) this.gambitRules[index].value = value;
+    }
+
+    public showOfflineReport(report: OfflineHuntReport): void {
+        let duration = Math.floor(report.duration / 1000),
+            hours = Math.floor(duration / 3600),
+            minutes = Math.floor((duration % 3600) / 60);
+
+        this.offlineReport.querySelector(
+            '.offline-report-time'
+        )!.textContent = `${hours}h ${minutes}min`;
+        this.offlineReport.querySelector('.offline-report-kills')!.textContent = `${report.kills}`;
+        this.offlineReport.querySelector(
+            '.offline-report-experience'
+        )!.textContent = `${report.experience}`;
+        this.offlineReport.querySelector('.offline-report-levels')!.textContent = `${
+            report.levelsGained || 0
+        }`;
+        this.offlineReport.querySelector(
+            '.offline-report-loot'
+        )!.textContent = `${report.lootCollected} itens coletados; ${report.lootOverflow} não couberam.`;
+        this.offlineReport.querySelector('.offline-report-reason')!.textContent = report.reason;
+
+        if (!this.offlineReport.open) this.offlineReport.showModal();
+    }
+
+    private getGambitRules(): AutoHuntRule[] {
+        return this.gambitRules.map((select) => select.value as AutoHuntRule);
+    }
+
+    private getPostureName(posture?: string): string {
+        switch (posture) {
+            case 'advance': {
+                return 'Avanço';
+            }
+            case 'guard': {
+                return 'Guarda';
+            }
+            default: {
+                return 'Equilíbrio';
+            }
+        }
     }
 
     /**

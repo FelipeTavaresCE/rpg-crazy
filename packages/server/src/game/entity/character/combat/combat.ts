@@ -1,12 +1,14 @@
 import Hit from './hit';
 
 import Formulas from '../../../../info/formulas';
+import { getPvEDamage } from '../../../../info/pve-formula';
 
 import log from '@kaetram/common/util/log';
 import { Modules, Opcodes } from '@kaetram/common/network';
 import { CombatPacket, SpawnPacket } from '@kaetram/common/network/impl';
 
 import type Character from '../character';
+import type Player from '../player/player';
 
 export default class Combat {
     public started = false;
@@ -138,6 +140,15 @@ export default class Combat {
 
             this.character.stopMovement();
 
+            if (
+                this.character.isPlayer() &&
+                this.character.target?.isMob() &&
+                (this.character as Player).autoHuntEnabled &&
+                (this.character as Player).isMagic() &&
+                !(this.character as Player).hasManaForAttack()
+            )
+                return;
+
             let hit = this.createHit();
 
             this.sendAttack(hit);
@@ -227,6 +238,78 @@ export default class Combat {
 
     private createHit(): Hit {
         let damageType = this.character.getDamageType();
+
+        if (
+            this.character.isPlayer() &&
+            this.character.target?.isMob() &&
+            (this.character as Player).autoHuntEnabled
+        ) {
+            let player = this.character as Player,
+                mob = this.character.target,
+                defenseStats = mob.getDefenseStats(),
+                defense = player.isMagic()
+                    ? defenseStats.magic
+                    : player.isArcher()
+                    ? defenseStats.archery
+                    : player.getAttackStyle() === Modules.AttackStyle.Stab
+                    ? defenseStats.stab
+                    : player.getAttackStyle() === Modules.AttackStyle.Crush
+                    ? defenseStats.crush
+                    : defenseStats.slash;
+
+            return new Hit(
+                damageType,
+                getPvEDamage({
+                    attackBonus: player.getDamageBonus(),
+                    attribute: player.getSkillDamageLevel(),
+                    defense,
+                    attackerLevel: player.level,
+                    critical: damageType === Modules.Hits.Critical,
+                    posture: player.autoHuntPosture
+                }),
+                player.isRanged(),
+                player.getAoE(),
+                player.isMagic(),
+                player.isArcher(),
+                player.getAttackStyle()
+            );
+        }
+
+        if (
+            this.character.isMob() &&
+            this.character.target?.isPlayer() &&
+            (this.character.target as Player).autoHuntEnabled
+        ) {
+            let player = this.character.target as Player,
+                defenseStats = player.getDefenseStats(),
+                defense =
+                    (this.character.isMagic()
+                        ? defenseStats.magic
+                        : this.character.isRanged()
+                        ? defenseStats.archery
+                        : defenseStats.slash) *
+                    (player.autoHuntPosture === 'guard'
+                        ? 1.4
+                        : player.autoHuntPosture === 'advance'
+                        ? 0.8
+                        : 1);
+
+            return new Hit(
+                damageType,
+                getPvEDamage({
+                    attackBonus: this.character.getDamageBonus(),
+                    attribute: this.character.getSkillDamageLevel(),
+                    defense,
+                    attackerLevel: this.character.level,
+                    critical: damageType === Modules.Hits.Critical
+                }),
+                this.character.isRanged(),
+                this.character.getAoE(),
+                this.character.isMagic(),
+                this.character.isArcher(),
+                this.character.getAttackStyle()
+            );
+        }
 
         return new Hit(
             damageType,
