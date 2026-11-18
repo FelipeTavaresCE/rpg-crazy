@@ -52,6 +52,11 @@ export interface PlayerInfo {
     autoHuntSnapshot?: OfflineHuntSnapshot;
     autoHuntReport?: OfflineHuntReport;
     autoHuntRules?: AutoHuntRule[];
+    weaponMastery?: { [key: string]: { level: number; experience: number } };
+    regionKillCounts?: { [key: string]: number };
+    autoRecycleRarities?: Array<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>;
+    socketedCards?: { [key: string]: string[] };
+    relics?: string[];
     resetToken?: ResetToken;
 }
 
@@ -129,7 +134,12 @@ export default class Creator {
                                 hitPoints: player.hitPoints.getHitPoints(),
                                 mana: player.mana.getMana(),
                                 autoHuntReport: player.autoHuntReport,
-                                autoHuntRules: player.autoHuntRules
+                                autoHuntRules: player.autoHuntRules,
+                                weaponMastery: player.weaponMastery,
+                                regionKillCounts: player.regionKillCounts,
+                                autoRecycleRarities: player.autoRecycleRarities,
+                                socketedCards: player.socketedCards,
+                                relics: player.relics
                             },
                             $unset: { autoHuntSnapshot: '' }
                         },
@@ -400,6 +410,11 @@ export default class Creator {
             autoHuntSnapshot: player.autoHuntSnapshot,
             autoHuntReport: player.autoHuntReport,
             autoHuntRules: player.autoHuntRules,
+            weaponMastery: player.weaponMastery,
+            regionKillCounts: player.regionKillCounts,
+            autoRecycleRarities: player.autoRecycleRarities,
+            socketedCards: player.socketedCards,
+            relics: player.relics,
             resetToken: undefined // Save token as undefined to prevent it from being saved.
         };
     }

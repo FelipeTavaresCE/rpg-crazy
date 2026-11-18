@@ -15,6 +15,8 @@ export interface OfflineHuntReport {
     lootCollected: number;
     lootOverflow: number;
     reason: string;
+    portadorKills?: number;
+    legendaryAnnouncements?: string[];
 }
 
 export interface OfflineHuntMob {
@@ -26,6 +28,7 @@ export interface OfflineHuntMob {
     attackRate: number;
     respawnDelay: number;
     count: number;
+    family?: string;
 }
 
 export interface OfflineHuntHealingItem {
@@ -52,6 +55,10 @@ export interface OfflineHuntSnapshot {
     resourcePerAttack: number;
     dropProbability: number;
     balanceVersion: number;
+    weaponFamily?: string;
+    masteryLevel?: number;
+    cardBonus?: number;
+    regionKillCount?: number;
     posture: AutoHuntPosture;
     rules: AutoHuntRule[];
     healingItems: OfflineHuntHealingItem[];

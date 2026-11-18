@@ -1,4 +1,5 @@
 import rawData from '../../../../data/items.json';
+import engineItemData from '../../../../../../src/data/items.json';
 import Entity from '../entity';
 
 import log from '@kaetram/common/util/log';
@@ -14,6 +15,8 @@ import type { Bonuses, Enchantments, ItemData, Light, Stats } from '@kaetram/com
 interface RawData {
     [key: string]: ItemData;
 }
+
+const itemData: RawData = { ...rawData, ...engineItemData } as RawData;
 
 export default class Item extends Entity {
     private data: ItemData;
@@ -104,7 +107,7 @@ export default class Item extends Entity {
         // Prevent invalid count values.
         this.count = Utils.sanitizeNumber(this.count);
 
-        this.data = (rawData as RawData)[key];
+        this.data = itemData[key];
 
         if (!this.data) {
             log.error(`[Item] Could not find data for ${key}.`);
