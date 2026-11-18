@@ -60,3 +60,5 @@ Cada sprint deve poder ser ativada separadamente no servidor. Com os recursos de
 ## Verificação desta preparação
 
 Executar `yarn install --immutable` e `yarn build` na raiz com Node.js 18 ou 20 e o Yarn fixado pelo repositório, conforme [`package.json`](package.json) e o [workflow de build](.github/workflows/build.yml). Este roadmap é a única mudança prevista; não alterar dependências, configuração ou código para mascarar falhas preexistentes.
+
+**Resultado local (Node.js 20.20.2 / Yarn 4.0.0-rc.40):** `yarn build` concluiu com código 0 em cliente, servidor e hub usando as dependências que o Yarn conseguiu instalar. Não foi possível confirmar uma instalação e compilação limpas de ponta a ponta: `yarn install --immutable` terminou com código 1 por falhas de DNS nos downloads dos binários de Cypress e Sentry CLI, e o Astro registrou uma falha não fatal ao comprimir um arquivo JavaScript.
