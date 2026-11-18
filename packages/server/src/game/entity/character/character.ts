@@ -21,6 +21,7 @@ import {
 } from '@kaetram/common/network/impl';
 
 import type World from '../../world';
+import type Player from './player/player';
 import type Packet from '@kaetram/common/network/packet';
 import type { EntityData } from '@kaetram/common/types/entity';
 import type { Bonuses, Stats } from '@kaetram/common/types/item';
@@ -411,6 +412,11 @@ export default abstract class Character extends Entity {
 
         // If the character has bloodsucking, we let the handler take care of it.
         if (attacker?.hasBloodsucking()) this.handleBloodsucking(attacker!, damage);
+
+        if (attacker?.isPlayer()) {
+            let healing = (attacker as Player).getVampiricGemHealing(damage);
+            if (healing > 0) (attacker as Player).heal(healing, 'hitpoints');
+        }
 
         // Call the death callback if the character reaches 0 hitpoints.
         if (this.isDead()) {

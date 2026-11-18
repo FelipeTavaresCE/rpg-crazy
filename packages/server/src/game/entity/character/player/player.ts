@@ -19,8 +19,25 @@ import rawMobData from '../../../../../data/mobs.json';
 import dropTables from '../../../../../data/tables.json';
 import engineItemData from '../../../../../../../src/data/items.json';
 import engineMonsterData from '../../../../../../../src/data/monsters.json';
-import { simulateOfflineLoot } from '../../../../../../../src/engine/offline-simulator';
+import {
+    evaluateOfflineGambit,
+    simulateOfflineLoot
+} from '../../../../../../../src/engine/offline-simulator';
+import {
+    calculateCombatDamage,
+    getSkillGemEffect,
+    getWeaponSkillArea
+} from '../../../../../../../src/engine/CombatEngine';
 import { calculateCardAndRelicBonuses } from '../../../../../../../src/systems/card-and-relic-system';
+import {
+    calculatePassiveBonuses,
+    getPassivePoints,
+    unlockPassiveNode as unlockTreeNode
+} from '../../../../../../../src/systems/PassiveTreeSystem';
+import {
+    evaluateGambitRules,
+    sanitizeGambitRules
+} from '../../../../../../../src/systems/GambitAI';
 import {
     awardWeaponMastery,
     masteryEfficiency
@@ -82,6 +99,7 @@ import type {
     AutoHuntPacketData,
     AutoHuntPosture,
     AutoHuntRule,
+    GambitRule,
     OfflineHuntHealingItem,
     OfflineHuntMob,
     OfflineHuntReport,
@@ -144,13 +162,18 @@ export default class Player extends Character {
     public overrideMovementSpeed = -1;
     public autoHuntEnabled = false;
     public autoHuntRules: AutoHuntRule[] = ['heal-low', 'guard-low', 'advance-high'];
+    public gambitRules: GambitRule[] = DEFAULT_GAMBIT_RULES.map((rule) => ({ ...rule }));
     public autoHuntPosture: AutoHuntPosture = 'balance';
+    public autoHuntPendingSkill?: string;
+    public autoHuntProjectileCount = 1;
     public autoHuntSnapshot?: OfflineHuntSnapshot;
     public autoHuntReport?: OfflineHuntReport;
     public weaponMastery: MasteryProgress = {};
     public regionKillCounts: { [key: string]: number } = {};
     public autoRecycleRarities: ItemRarity[] = [];
     public socketedCards: { [key: string]: string[] } = {};
+    public socketedGems: { [key: string]: string[] } = {};
+    public unlockedPassiveNodes: string[] = [];
     public relics: string[] = [];
 
     // Player info
@@ -291,6 +314,7 @@ export default class Player extends Character {
         this.regionsLoaded = data.regionsLoaded || [];
         this.lastGlobalChat = data.lastGlobalChat || 0;
         this.autoHuntRules = data.autoHuntRules || this.autoHuntRules;
+        this.gambitRules = sanitizeGambitRules(data.gambitRules);
         this.autoHuntEnabled = false;
         this.autoHuntSnapshot = data.autoHuntSnapshot;
         this.autoHuntReport = data.autoHuntReport;
@@ -298,6 +322,10 @@ export default class Player extends Character {
         this.regionKillCounts = data.regionKillCounts || {};
         this.autoRecycleRarities = data.autoRecycleRarities || [];
         this.socketedCards = data.socketedCards || {};
+        this.socketedGems = data.socketedGems || {};
+        this.unlockedPassiveNodes = (data.unlockedPassiveNodes || []).filter(
+            (node) => typeof node === 'string'
+        );
         this.relics = data.relics || [];
 
         this.setPoison(data.poison.type, Date.now() - data.poison.remaining);
@@ -841,6 +869,8 @@ export default class Player extends Character {
     public configureAutoHunt(data: AutoHuntPacketData): void {
         if (data.action !== 'configure') return;
 
+        if (Array.isArray(data.gambits)) this.gambitRules = sanitizeGambitRules(data.gambits);
+
         if (Array.isArray(data.rules)) {
             let validRules = new Set<AutoHuntRule>([
                 'heal-low',
@@ -881,6 +911,19 @@ export default class Player extends Character {
 
         this.sendAutoHuntState();
         this.save();
+    }
+
+    public getAvailablePassivePoints(): number {
+        return Math.max(0, getPassivePoints(this.level) - this.unlockedPassiveNodes.length);
+    }
+
+    public unlockPassiveNode(nodeId: string): boolean {
+        let unlocked = unlockTreeNode(this.unlockedPassiveNodes, nodeId, this.level);
+        if (!unlocked) return false;
+
+        this.unlockedPassiveNodes = unlocked;
+        this.save();
+        return true;
     }
 
     private hasEligibleMobNearby(): boolean {
@@ -943,10 +986,29 @@ export default class Player extends Character {
     }
 
     private evaluateGambits(): void {
-        let healthRatio = this.hitPoints.getHitPoints() / this.hitPoints.getMaxHitPoints();
+        let target = this.target?.isMob() && !this.target.isDead() ? (this.target as Mob) : undefined,
+            adjacentEnemies = 0;
 
-        for (let rule of this.autoHuntRules) {
-            if (rule === 'heal-low' && healthRatio < 0.35 && this.canEat())
+        this.world.entities.forEachMob((mob) => {
+            if (!mob.isDead() && mob.region === this.region && mob.getDistance(this) <= 1)
+                adjacentEnemies++;
+        });
+
+        let decision = evaluateGambitRules(this.gambitRules, {
+            hitPoints: this.hitPoints.getHitPoints(),
+            maxHitPoints: this.hitPoints.getMaxHitPoints(),
+            targetIsPortadorOrBoss: !!target && (target.boss || target.miniboss),
+            adjacentEnemies,
+            canHeal: this.hasAutoHuntHealingItem(),
+            canUseUltimate: !this.autoHuntPendingSkill,
+            canUseAoe: !this.autoHuntPendingSkill,
+            hasTarget: !!target
+        });
+
+        if (!decision) return;
+
+        switch (decision.action.type) {
+            case 'USE_POTION_OR_HEAL': {
                 for (let index = 0; index < this.inventory.size; index++) {
                     let slot = this.inventory.get(index);
                     if (!slot?.key) continue;
@@ -967,19 +1029,82 @@ export default class Player extends Character {
                     if (this.hitPoints.getHitPoints() > hitPoints || this.mana.getMana() > mana)
                         return;
                 }
-
-            let posture: AutoHuntPosture | undefined;
-            if (rule === 'guard-low' && healthRatio < 0.5) posture = 'guard';
-            else if (rule === 'advance-high' && healthRatio >= 0.5) posture = 'advance';
-            else if (rule === 'balance-low' && healthRatio < 0.5) posture = 'balance';
-            else if (rule === 'balance-high' && healthRatio >= 0.5) posture = 'balance';
-
-            if (posture && posture !== this.autoHuntPosture) {
-                this.autoHuntPosture = posture;
-                this.sendAutoHuntState();
-                return;
+                break;
             }
+            case 'SWITCH_STANCE': {
+                let posture: AutoHuntPosture =
+                    decision.action.stance === 'Guarda'
+                        ? 'guard'
+                        : decision.action.stance === 'Avanço'
+                        ? 'advance'
+                        : 'balance';
+                if (posture !== this.autoHuntPosture) {
+                    this.autoHuntPosture = posture;
+                    this.sendAutoHuntState();
+                }
+                break;
+            }
+            case 'USE_ULTIMATE':
+                this.autoHuntPendingSkill = this.getAutoHuntSkillId('ultimate');
+                break;
+            case 'USE_AOE':
+                this.autoHuntPendingSkill = this.getAutoHuntSkillId('area');
+                this.aoe = getWeaponSkillArea(this.autoHuntPendingSkill) || 1;
+                break;
+            case 'ATTACK_NEAREST':
+                break;
         }
+    }
+
+    private hasAutoHuntHealingItem(): boolean {
+        if (!this.canEat()) return false;
+
+        for (let index = 0; index < this.inventory.size; index++) {
+            let slot = this.inventory.get(index);
+            if (!slot?.key) continue;
+
+            let item = this.inventory.getItem(slot);
+            if (item.edible && item.plugin) return true;
+        }
+
+        return false;
+    }
+
+    private getAutoHuntSkillId(type: 'area' | 'ultimate'): string {
+        let family = this.isArcher() ? 'bow' : this.isMagic() ? 'staff' : 'sword';
+        let skills: Record<string, { area: string; ultimate: string }> = {
+            sword: { area: 'sword_cleave', ultimate: 'sword_ultimate' },
+            bow: { area: 'bow_volley', ultimate: 'bow_ultimate' },
+            staff: { area: 'staff_nova', ultimate: 'staff_ultimate' }
+        };
+        return skills[family][type];
+    }
+
+    public getSocketedSkillGems(): string[] {
+        return [...(this.socketedGems[this.equipment.getWeapon().key] || [])];
+    }
+
+    public getVampiricGemHealing(damage: number): number {
+        let healingRate = this.getSocketedSkillGems().reduce(
+            (total, gemId) => total + (getSkillGemEffect(gemId)?.damageToHp ?? 0),
+            0
+        );
+        return Math.floor(Math.max(0, damage) * healingRate);
+    }
+
+    public getCardBonusAgainst(family = ''): number {
+        let bonuses = calculateCardAndRelicBonuses(
+            Object.values(this.socketedCards).flat(),
+            this.relics
+        );
+        return (
+            (bonuses.attack ?? 0) +
+            (family === 'beast'
+                ? bonuses.beastDamage ?? 0
+                : family === 'undead'
+                ? bonuses.undeadDamage ?? 0
+                : 0)
+        );
     }
 
     private collectNearbyDrops(): void {
@@ -999,6 +1124,7 @@ export default class Player extends Character {
                 action: 'state',
                 enabled: this.autoHuntEnabled,
                 rules: this.autoHuntRules,
+                gambits: this.gambitRules,
                 posture: this.autoHuntPosture,
                 target
             } satisfies AutoHuntPacketData)
@@ -1017,6 +1143,7 @@ export default class Player extends Character {
 
         let population: { [key: string]: OfflineHuntMob } = {},
             healingItems: OfflineHuntHealingItem[] = [],
+            adjacentEnemies = 0,
             rawItems = { ...rawItemData, ...engineItemData } as { [key: string]: ItemData };
 
         for (let index = 0; index < this.inventory.size; index++) {
@@ -1037,6 +1164,8 @@ export default class Player extends Character {
 
         this.world.entities.forEachMob((mob) => {
             if (mob.isDead() || mob.region !== this.region || mob.getDistance(this) > 12) return;
+
+            if (mob.getDistance(this) <= 1) adjacentEnemies++;
 
             let existing = population[mob.key],
                 attackStats = mob.getAttackStats(),
@@ -1068,7 +1197,8 @@ export default class Player extends Character {
                     attack,
                     attackRate: mob.getAttackRate(),
                     respawnDelay: mob.respawnDelay,
-                    count: 1
+                    count: 1,
+                    boss: mob.boss || mob.miniboss
                 };
         });
 
@@ -1100,6 +1230,13 @@ export default class Player extends Character {
                 }, 0) /
                     mobs.reduce((total, mob) => total + mob.count, 0),
             masteryLevel = this.weaponMastery[weaponFamily]?.level || 1;
+        let passiveBonuses = calculatePassiveBonuses(this.unlockedPassiveNodes),
+            weaponGems = this.socketedGems[this.equipment.getWeapon().key] || [],
+            maxHitPoints =
+                this.hitPoints.getMaxHitPoints() * (1 + passiveBonuses.maxHitPoints),
+            hitPoints =
+                (this.hitPoints.getHitPoints() / this.hitPoints.getMaxHitPoints()) *
+                maxHitPoints;
 
         return {
             startedAt: Date.now(),
@@ -1116,8 +1253,8 @@ export default class Player extends Character {
                     (this.status.has(Modules.Effects.DualistsMark) ? 200 : 0)
             ),
             attackerLevel: this.level,
-            maxHitPoints: this.hitPoints.getMaxHitPoints(),
-            hitPoints: this.hitPoints.getHitPoints(),
+            maxHitPoints,
+            hitPoints,
             mana: this.mana.getMana(),
             resourceType: this.isMagic() ? 'mana' : this.isArcher() ? 'arrows' : 'none',
             resourceCount: this.isMagic()
@@ -1138,6 +1275,18 @@ export default class Player extends Character {
             regionKillCount: this.regionKillCounts[String(this.region)] || 0,
             posture: this.autoHuntPosture,
             rules: [...this.autoHuntRules],
+            gambitRules: this.gambitRules.map((rule) => ({
+                ...rule,
+                condition: { ...rule.condition },
+                action: { ...rule.action }
+            })),
+            unlockedPassiveNodes: [...this.unlockedPassiveNodes],
+            passiveBonus: passiveBonuses.attack,
+            passiveDefenseBonus: passiveBonuses.defense,
+            passiveAttackSpeedBonus: passiveBonuses.attackSpeed,
+            passiveMaxHitPointsBonus: passiveBonuses.maxHitPoints,
+            socketedGems: [...weaponGems],
+            adjacentEnemies,
             healingItems,
             mobs
         };
@@ -1170,27 +1319,38 @@ export default class Player extends Character {
 
         if (population < 1) return;
 
-        let offlinePosture = snapshot.posture,
-            healthRatio = snapshot.hitPoints / Math.max(1, snapshot.maxHitPoints);
-
-        for (let rule of snapshot.rules || []) {
-            if (rule === 'heal-low' && healthRatio < 0.35) continue;
-            if (rule === 'guard-low' && healthRatio < 0.5) {
-                offlinePosture = 'guard';
-                break;
-            }
-            if (rule === 'advance-high' && healthRatio >= 0.5) {
-                offlinePosture = 'advance';
-                break;
-            }
-            if (
-                (rule === 'balance-low' && healthRatio < 0.5) ||
-                (rule === 'balance-high' && healthRatio >= 0.5)
-            ) {
-                offlinePosture = 'balance';
-                break;
-            }
-        }
+        let healingItems = (snapshot.healingItems || []).filter(
+                (item) => Number.isFinite(item.count) && item.count > 0
+            ),
+            gambit = evaluateOfflineGambit({
+                ...snapshot,
+                mobs,
+                healingItems
+            }),
+            offlinePosture =
+                gambit?.action.type === 'SWITCH_STANCE'
+                    ? gambit.action.stance === 'Guarda'
+                        ? 'guard'
+                        : gambit.action.stance === 'Avanço'
+                        ? 'advance'
+                        : 'balance'
+                    : snapshot.posture,
+            skillFamily =
+                snapshot.weaponFamily === 'bow' || snapshot.weaponFamily === 'archery'
+                    ? 'bow'
+                    : snapshot.weaponFamily === 'staff'
+                    ? 'staff'
+                    : 'sword',
+            skillId =
+                gambit?.action.type === 'USE_ULTIMATE'
+                    ? `${skillFamily}_ultimate`
+                    : gambit?.action.type === 'USE_AOE'
+                    ? skillFamily === 'sword'
+                        ? 'sword_cleave'
+                        : `${skillFamily}_${skillFamily === 'bow' ? 'volley' : 'nova'}`
+                    : undefined,
+            usesHealing = gambit?.action.type === 'USE_POTION_OR_HEAL',
+            passiveBonuses = calculatePassiveBonuses(snapshot.unlockedPassiveNodes || []);
 
         let average = (select: (mob: OfflineHuntMob) => number): number =>
                 mobs.reduce((total, mob) => total + select(mob) * mob.count, 0) / population,
@@ -1202,18 +1362,18 @@ export default class Player extends Character {
                 100,
                 average((mob) => mob.attackRate)
             ),
-            effectiveAttackRate =
-                offlinePosture === 'advance'
-                    ? Math.max(100, Math.floor(snapshot.attackRate / 1.15))
-                    : Math.max(100, snapshot.attackRate),
-            healingBudget = (snapshot.rules || []).includes('heal-low')
-                ? (snapshot.healingItems || [])
+            effectiveAttackRate = Math.max(
+                100,
+                Math.floor(
+                    snapshot.attackRate /
+                        (1 + (snapshot.passiveAttackSpeedBonus ?? passiveBonuses.attackSpeed)) /
+                        (offlinePosture === 'advance' ? 1.15 : 1)
+                )
+            ),
+            healingBudget = usesHealing
+                ? healingItems
                       .filter(
-                          (item) =>
-                              Number.isFinite(item.hitPoints) &&
-                              Number.isFinite(item.mana) &&
-                              Number.isFinite(item.count) &&
-                              item.count > 0
+                          (item) => Number.isFinite(item.hitPoints) && Number.isFinite(item.mana)
                       )
                       .reduce(
                           (total, item) => ({
@@ -1223,18 +1383,23 @@ export default class Player extends Character {
                           { hitPoints: 0, mana: 0 }
                       )
                 : { hitPoints: 0, mana: 0 },
-            damagePerHit =
-                snapshot.attackBonus + snapshot.attribute * 1.5 > 0
-                    ? getPvEDamage({
-                          attackBonus: snapshot.attackBonus,
-                          attribute: snapshot.attribute,
-                          defense: averageDefense,
-                          attackerLevel: snapshot.attackerLevel,
-                          mastery: masteryEfficiency(snapshot.masteryLevel || 1),
-                          cardBonus: snapshot.cardBonus || 0,
-                          posture: offlinePosture
-                      })
-                    : 0,
+            damageResult = calculateCombatDamage({
+                attackBonus: snapshot.attackBonus,
+                attribute: snapshot.attribute,
+                defense: averageDefense,
+                attackerLevel: snapshot.attackerLevel,
+                mastery: masteryEfficiency(snapshot.masteryLevel || 1),
+                cardBonus: snapshot.cardBonus || 0,
+                passiveBonuses: {
+                    ...passiveBonuses,
+                    attack: snapshot.passiveBonus ?? passiveBonuses.attack
+                },
+                posture: offlinePosture,
+                skillId,
+                projectile: snapshot.resourceType !== 'none',
+                socketedGems: snapshot.socketedGems
+            }),
+            damagePerHit = damageResult.totalDamage,
             dps = damagePerHit * (1000 / effectiveAttackRate),
             baseKillTime = dps > 0 ? averageHP / dps + 2.5 : Infinity,
             attacksPerKill = Math.max(1, Math.ceil((baseKillTime * 1000) / effectiveAttackRate)),
@@ -1250,6 +1415,7 @@ export default class Player extends Character {
                           attribute: 0,
                           defense:
                               this.getDefenseStats().slash *
+                              (1 + (snapshot.passiveDefenseBonus ?? passiveBonuses.defense)) *
                               (offlinePosture === 'guard'
                                   ? 1.4
                                   : offlinePosture === 'advance'
@@ -1261,13 +1427,17 @@ export default class Player extends Character {
             damageTakenPerKill =
                 mobDamagePerAttack *
                 Math.max(1, Math.ceil((baseKillTime * 1000) / Math.max(100, averageAttackRate))),
+            lifeStealPerKill =
+                damageResult.lifeSteal * Math.max(1, attacksPerKill),
             recoveryTime = guardRegen > 0 ? damageTakenPerKill / guardRegen : 0,
             killTime = baseKillTime + recoveryTime,
             survivalLimit =
-                damageTakenPerKill > 0
+                damageTakenPerKill > lifeStealPerKill
                     ? Math.floor(
-                          (snapshot.hitPoints + healingBudget.hitPoints + guardRegen * seconds) /
-                              damageTakenPerKill
+                          (snapshot.hitPoints +
+                              healingBudget.hitPoints +
+                              guardRegen * seconds) /
+                              (damageTakenPerKill - lifeStealPerKill)
                       )
                     : Infinity,
             resourceLimit =
@@ -1305,14 +1475,16 @@ export default class Player extends Character {
         let healingHitPoints = 0,
             healingMana = 0,
             missingHealing =
-                (snapshot.rules || []).includes('heal-low') && kills > 0 && damageTakenPerKill > 0
+                usesHealing && kills > 0 && damageTakenPerKill > 0
                     ? Math.max(
                           0,
-                          kills * damageTakenPerKill - snapshot.hitPoints - guardRegen * elapsed
+                          kills * (damageTakenPerKill - lifeStealPerKill) -
+                              snapshot.hitPoints -
+                              guardRegen * elapsed
                       )
                     : 0,
             missingMana =
-                (snapshot.rules || []).includes('heal-low') &&
+                usesHealing &&
                 snapshot.resourceType === 'mana' &&
                 snapshot.resourcePerAttack > 0
                     ? Math.max(
@@ -1321,7 +1493,7 @@ export default class Player extends Character {
                       )
                     : 0;
 
-        for (let item of snapshot.healingItems || []) {
+        for (let item of healingItems) {
             let used = 0;
             while (
                 used < item.count &&
@@ -1346,7 +1518,10 @@ export default class Player extends Character {
         if (healingMana > 0) this.mana.increment(healingMana);
         if (damageTakenPerKill > 0 && kills > 0)
             this.hitPoints.decrement(
-                Math.max(0, kills * damageTakenPerKill - guardRegen * elapsed)
+                Math.max(
+                    0,
+                    kills * (damageTakenPerKill - lifeStealPerKill) - guardRegen * elapsed
+                )
             );
 
         let result = this.applyOfflineDrops(snapshot, kills, elapsed),
@@ -3146,6 +3321,7 @@ export default class Player extends Character {
 
         data.autoHuntEnabled = this.autoHuntEnabled;
         data.autoHuntRules = this.autoHuntRules;
+        data.gambitRules = this.gambitRules;
         data.autoHuntReport = this.autoHuntReport;
 
         return data;
@@ -3394,7 +3570,9 @@ export default class Player extends Character {
      */
 
     public override getAttackRate(): number {
-        let rate = this.equipment.getWeapon().attackRate;
+        let rate =
+            this.equipment.getWeapon().attackRate /
+            (1 + calculatePassiveBonuses(this.unlockedPassiveNodes).attackSpeed);
 
         // Dualists mark status effect boosts attack speed by 200 milliseconds.
         if (this.status.has(Modules.Effects.DualistsMark)) rate -= 200;
@@ -3402,7 +3580,7 @@ export default class Player extends Character {
         if (this.autoHuntEnabled && this.target?.isMob() && this.autoHuntPosture === 'advance')
             return Math.max(100, Math.floor(rate / 1.15));
 
-        return rate;
+        return Math.max(100, Math.floor(rate));
     }
 
     /**

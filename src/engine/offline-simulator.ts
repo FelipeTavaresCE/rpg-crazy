@@ -1,6 +1,9 @@
 import { rollEconomyDrops, recycleDrops } from '../systems/loot-and-economy';
+import { DEFAULT_GAMBIT_RULES, evaluateGambitRules, sanitizeGambitRules } from '../systems/GambitAI';
 
 import type { AutoRecycleSettings, EconomyResult, LootDrop } from '../systems/loot-and-economy';
+import type { GambitDecision } from '../systems/GambitAI';
+import type { OfflineHuntSnapshot } from '@kaetram/common/network/impl/autohunt';
 
 export interface OfflineLootInput {
     seed: number;
@@ -14,6 +17,34 @@ export interface OfflineLootInput {
 export interface OfflineLootResult extends EconomyResult {
     recycled: LootDrop[];
     announcements: string[];
+}
+
+export function evaluateOfflineGambit(
+    snapshot: Pick<
+        OfflineHuntSnapshot,
+        | 'hitPoints'
+        | 'maxHitPoints'
+        | 'gambitRules'
+        | 'mobs'
+        | 'adjacentEnemies'
+        | 'regionKillCount'
+        | 'healingItems'
+    >
+): GambitDecision | undefined {
+    let rules = sanitizeGambitRules(snapshot.gambitRules ?? DEFAULT_GAMBIT_RULES);
+
+    return evaluateGambitRules(rules, {
+        hitPoints: snapshot.hitPoints,
+        maxHitPoints: snapshot.maxHitPoints,
+        targetIsPortadorOrBoss:
+            snapshot.mobs.some((mob) => mob.boss) ||
+            (((snapshot.regionKillCount ?? 0) + 1) % 100 === 0),
+        adjacentEnemies: snapshot.adjacentEnemies ?? 0,
+        canHeal: snapshot.healingItems.some((item) => item.count > 0),
+        canUseUltimate: true,
+        canUseAoe: true,
+        hasTarget: snapshot.mobs.length > 0
+    });
 }
 
 export function isEclipseAt(timestamp: number): boolean {

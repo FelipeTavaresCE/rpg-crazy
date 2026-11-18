@@ -1,24 +1,11 @@
-export type CombatStance = 'Equilíbrio' | 'Avanço' | 'Guarda';
+import type {
+    GambitAction,
+    GambitCondition,
+    GambitRule
+} from '@kaetram/common/network/impl/autohunt';
 
-export type GambitCondition =
-    | { type: 'HP_BELOW_PERCENT'; percent: number }
-    | { type: 'TARGET_IS_PORTADOR_OR_BOSS' }
-    | { type: 'ADJACENT_ENEMIES_GTE'; count: number }
-    | { type: 'ALWAYS' };
-
-export type GambitAction =
-    | { type: 'USE_POTION_OR_HEAL' }
-    | { type: 'SWITCH_STANCE'; stance: CombatStance }
-    | { type: 'USE_ULTIMATE' }
-    | { type: 'USE_AOE' }
-    | { type: 'ATTACK_NEAREST' };
-
-export interface GambitRule {
-    id: string;
-    condition: GambitCondition;
-    action: GambitAction;
-    enabled?: boolean;
-}
+export type { GambitAction, GambitCondition, GambitRule } from '@kaetram/common/network/impl/autohunt';
+export type { CombatStance } from '@kaetram/common/network/impl/autohunt';
 
 export interface GambitContext {
     hitPoints: number;

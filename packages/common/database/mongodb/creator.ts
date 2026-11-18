@@ -9,6 +9,7 @@ import type { GuildData } from '@kaetram/common/network/impl/guild';
 import type { SerializedEffects } from '@kaetram/common/types/status';
 import type {
     AutoHuntRule,
+    GambitRule,
     OfflineHuntReport,
     OfflineHuntSnapshot
 } from '@kaetram/common/network/impl/autohunt';
@@ -52,6 +53,9 @@ export interface PlayerInfo {
     autoHuntSnapshot?: OfflineHuntSnapshot;
     autoHuntReport?: OfflineHuntReport;
     autoHuntRules?: AutoHuntRule[];
+    gambitRules?: GambitRule[];
+    unlockedPassiveNodes?: string[];
+    socketedGems?: { [key: string]: string[] };
     weaponMastery?: { [key: string]: { level: number; experience: number } };
     regionKillCounts?: { [key: string]: number };
     autoRecycleRarities?: Array<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>;
@@ -135,6 +139,9 @@ export default class Creator {
                                 mana: player.mana.getMana(),
                                 autoHuntReport: player.autoHuntReport,
                                 autoHuntRules: player.autoHuntRules,
+                                gambitRules: player.gambitRules,
+                                unlockedPassiveNodes: player.unlockedPassiveNodes,
+                                socketedGems: player.socketedGems,
                                 weaponMastery: player.weaponMastery,
                                 regionKillCounts: player.regionKillCounts,
                                 autoRecycleRarities: player.autoRecycleRarities,
@@ -410,6 +417,9 @@ export default class Creator {
             autoHuntSnapshot: player.autoHuntSnapshot,
             autoHuntReport: player.autoHuntReport,
             autoHuntRules: player.autoHuntRules,
+            gambitRules: player.gambitRules,
+            unlockedPassiveNodes: player.unlockedPassiveNodes,
+            socketedGems: player.socketedGems,
             weaponMastery: player.weaponMastery,
             regionKillCounts: player.regionKillCounts,
             autoRecycleRarities: player.autoRecycleRarities,

@@ -35,6 +35,7 @@ export interface CombatDamageInput {
     critical?: boolean;
     posture?: AutoHuntPosture;
     skillId?: string;
+    projectile?: boolean;
     socketedGems?: string[];
 }
 
@@ -68,7 +69,7 @@ export function calculateCombatDamage(input: CombatDamageInput): CombatDamageRes
 
     for (let gemId of input.socketedGems ?? []) {
         let gem = catalog.skillGems[gemId];
-        if (gem?.effect === 'projectile_count')
+        if (gem?.effect === 'projectile_count' && input.projectile)
             projectileCount = Math.max(projectileCount, gem.projectileCount ?? 1);
         else if (gem?.effect === 'damage_to_hp')
             lifeStealRate += gem.damageToHp ?? 0;
@@ -86,6 +87,10 @@ export function calculateCombatDamage(input: CombatDamageInput): CombatDamageRes
 
 export function getWeaponSkillRange(skillId: string): number | undefined {
     return catalog.weaponSkills[skillId]?.rangeSqm;
+}
+
+export function getWeaponSkillArea(skillId: string): number | undefined {
+    return catalog.weaponSkills[skillId]?.areaRadiusSqm;
 }
 
 export function getSkillGemEffect(gemId: string): SkillGemDefinition | undefined {
