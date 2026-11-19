@@ -1,6 +1,8 @@
 import items from '../data/items.json';
 import monsters from '../data/monsters.json';
 
+import { AUTO_RECYCLE_RARITIES } from '@kaetram/common/network/impl/autohunt';
+
 export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 export type RandomSource = () => number;
 
@@ -28,7 +30,7 @@ export interface EconomyResult {
     regionKillCount: number;
 }
 
-const rarityValues = new Set<ItemRarity>(['common', 'uncommon', 'rare', 'epic', 'legendary']),
+const rarityValues = new Set<ItemRarity>(AUTO_RECYCLE_RARITIES),
     itemData = items as { [key: string]: LootItemData },
     monsterData = monsters as { [key: string]: { card: string; relic?: string } },
     cardKeys = [...new Set(Object.values(monsterData).map((monster) => monster.card))],
@@ -39,6 +41,10 @@ const rarityValues = new Set<ItemRarity>(['common', 'uncommon', 'rare', 'epic', 
 
 export function isPortadorKill(regionKillCount: number): boolean {
     return regionKillCount > 0 && regionKillCount % 100 === 0;
+}
+
+export function getItemRarity(key: string): ItemRarity | undefined {
+    return itemData[key]?.rarity;
 }
 
 export function rollEconomyDrops(
@@ -93,12 +99,20 @@ export function recycleDrops(
         recycled: LootDrop[] = [];
 
     for (let drop of drops) {
-        if (!selected.has(drop.rarity)) {
+        let item = Object.hasOwn(itemData, drop.key) ? itemData[drop.key] : undefined;
+        if (
+            !item ||
+            item.type === 'card' ||
+            item.type === 'relic' ||
+            item.rarity === 'legendary' ||
+            !rarityValues.has(item.rarity) ||
+            !selected.has(item.rarity)
+        ) {
             kept.push(drop);
             continue;
         }
 
-        let value = Math.max(1, itemData[drop.key]?.scrapValue ?? 1);
+        let value = Math.max(1, item.scrapValue ?? 1);
         recycled.push(
             {
                 key: 'arcane_dust',

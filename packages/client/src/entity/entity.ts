@@ -14,6 +14,7 @@ import type { EntityDisplayInfo } from '@kaetram/common/types/entity';
 export default abstract class Entity {
     public x = 0;
     public y = 0;
+    public z = 0;
     public gridX = 0;
     public gridY = 0;
     public nextGridX = -1;

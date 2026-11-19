@@ -145,11 +145,14 @@ export default class LootBag extends Entity {
         // Ensure the player has enough space in their inventory.
         if (!player.inventory.hasSpace()) return player.notify(`misc:NO_SPACE`);
 
-        // Removes the item from the loot bag.
+        let { count } = item,
+            added = player.inventory.add(item);
+        if (added < 1) return;
+        if (added < count) {
+            this.open(player);
+            return;
+        }
         delete this.container[index];
-
-        // Add the item to the player's inventory.
-        player.inventory.add(item);
 
         // Destroy the loot bag if it is empty.
         if (this.isEmpty()) this.destroy();
@@ -236,7 +239,8 @@ export default class LootBag extends Entity {
                 index: parseInt(i),
                 key: item.key,
                 count: item.count,
-                enchantments: item.enchantments
+                enchantments: item.enchantments,
+                equipmentInstance: item.equipmentInstance
             });
         }
 

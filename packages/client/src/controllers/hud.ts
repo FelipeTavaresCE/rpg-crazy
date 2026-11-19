@@ -1,5 +1,8 @@
 import Utils from '../utils/util';
+import { ClassicHUD } from '../../../../src/ui/ClassicHUD';
+import OfflineReportModal from '../../../../src/ui/OfflineReportModal';
 
+import type { ClassicHUDState } from '../../../../src/ui/ClassicHUD';
 import type Character from '../entity/character/character';
 import type Entity from '../entity/entity';
 import type InputController from './input';
@@ -23,10 +26,45 @@ export default class HUDController {
     private autoHuntButton = document.querySelector<HTMLButtonElement>('#auto-hunt-toggle')!;
     private postureLabel = document.querySelector<HTMLElement>('#auto-hunt-posture')!;
     private gambitRules = [...document.querySelectorAll<HTMLSelectElement>('.auto-hunt-rule')];
-    private offlineReport = document.querySelector<HTMLDialogElement>('#offline-report')!;
+    private offlineReport = new OfflineReportModal(
+        document.querySelector<HTMLDialogElement>('#offline-report')!
+    );
+    private classicState: ClassicHUDState = {};
+    private classicHUD: ClassicHUD;
 
     public constructor(private input: InputController) {
         this.onUpdate(this.handleUpdate.bind(this));
+        this.classicHUD = new ClassicHUD(
+            document.querySelector<HTMLElement>('#classic-hud-mount')!,
+            {
+                callbacks: {
+                    onStanceChange: (stance) =>
+                        this.input.sendAutoHunt({
+                            action: 'configure',
+                            posture:
+                                stance === 'Guarda'
+                                    ? 'guard'
+                                    : stance === 'Avanço'
+                                    ? 'advance'
+                                    : 'balance'
+                        }),
+                    onGambitsChange: (gambits) =>
+                        this.input.sendAutoHunt({ action: 'configure', gambits }),
+                    onAutoRecycleChange: ({ rarities }) =>
+                        this.input.sendAutoHunt({
+                            action: 'configure',
+                            autoRecycleRarities: rarities
+                        }),
+                    onEquipmentOperation: (operation, equipmentId) =>
+                        this.input.sendAutoHunt({
+                            action: 'equipment-operation',
+                            operation,
+                            equipmentId
+                        })
+                }
+            }
+        );
+        this.classicHUD.setCollapsed(true);
 
         this.autoHuntButton.addEventListener('click', () =>
             this.input.sendAutoHunt({
@@ -44,10 +82,6 @@ export default class HUDController {
                     rules: this.getGambitRules()
                 })
             );
-
-        this.offlineReport
-            .querySelector<HTMLButtonElement>('.offline-report-close')!
-            .addEventListener('click', () => this.offlineReport.close());
     }
 
     public updateAutoHunt(data: AutoHuntPacketData): void {
@@ -58,39 +92,35 @@ export default class HUDController {
         this.autoHuntButton.setAttribute('aria-pressed', `${this.autoHuntEnabled}`);
         this.postureLabel.textContent = `Postura: ${this.getPostureName(data.posture)}`;
 
+        this.classicState = {
+            ...this.classicState,
+            ...(data.posture ? { stance: this.getPostureName(data.posture) } : {}),
+            ...(data.gambits ? { gambits: data.gambits } : {}),
+            ...(data.autoRecycleRarities
+                ? { autoRecycle: { rarities: data.autoRecycleRarities } }
+                : {}),
+            ...(data.equipment
+                ? {
+                      equipment: data.equipment
+                  }
+                : {})
+        };
+        this.classicHUD.update(this.classicState);
+
         if (data.rules)
             for (let [index, value] of data.rules.entries())
                 if (this.gambitRules[index]) this.gambitRules[index].value = value;
     }
 
     public showOfflineReport(report: OfflineHuntReport): void {
-        let duration = Math.floor(report.duration / 1000),
-            hours = Math.floor(duration / 3600),
-            minutes = Math.floor((duration % 3600) / 60);
-
-        this.offlineReport.querySelector(
-            '.offline-report-time'
-        )!.textContent = `${hours}h ${minutes}min`;
-        this.offlineReport.querySelector('.offline-report-kills')!.textContent = `${report.kills}`;
-        this.offlineReport.querySelector(
-            '.offline-report-experience'
-        )!.textContent = `${report.experience}`;
-        this.offlineReport.querySelector('.offline-report-levels')!.textContent = `${
-            report.levelsGained || 0
-        }`;
-        this.offlineReport.querySelector(
-            '.offline-report-loot'
-        )!.textContent = `${report.lootCollected} itens coletados; ${report.lootOverflow} não couberam.`;
-        this.offlineReport.querySelector('.offline-report-reason')!.textContent = report.reason;
-
-        if (!this.offlineReport.open) this.offlineReport.showModal();
+        this.offlineReport.show(report);
     }
 
     private getGambitRules(): AutoHuntRule[] {
         return this.gambitRules.map((select) => select.value as AutoHuntRule);
     }
 
-    private getPostureName(posture?: string): string {
+    private getPostureName(posture?: string): 'Equilíbrio' | 'Avanço' | 'Guarda' {
         switch (posture) {
             case 'advance': {
                 return 'Avanço';

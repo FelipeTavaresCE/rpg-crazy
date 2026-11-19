@@ -6,7 +6,7 @@
 
 import type { HitData } from './info';
 import type { Modules } from '../network';
-import type { Enchantments } from './item';
+import type { Enchantments, EquipmentInstance } from './item';
 
 export interface EntityDisplayInfo {
     instance: string;
@@ -43,10 +43,12 @@ export interface EntityData {
     level?: number;
     hiddenName?: boolean;
     orientation?: Modules.Orientation;
+    portador?: boolean;
 
     // Item data
     count?: number;
     enchantments?: Enchantments;
+    equipmentInstance?: EquipmentInstance;
 
     // Projectile data
     ownerInstance?: string;

@@ -1,3 +1,5 @@
+import Inventory from './containers/impl/inventory';
+
 import log from '@kaetram/common/util/log';
 import Utils from '@kaetram/common/util/utils';
 import { Opcodes } from '@kaetram/common/network';
@@ -5,6 +7,7 @@ import { TradePacketPacket } from '@kaetram/common/network/impl';
 
 import type Player from './player';
 import type Item from '../../objects/item';
+import type { EquipmentInstance } from '@kaetram/common/types/item';
 
 /**
  * The trade instance is used to handle trading between two players. Whenever a trade is initiated,
@@ -14,7 +17,13 @@ import type Item from '../../objects/item';
  */
 
 type OpenCallback = (instance: string) => void;
-type AddCallback = (instance: string, index: number, count: number, key: string) => void;
+type AddCallback = (
+    instance: string,
+    index: number,
+    count: number,
+    key: string,
+    equipmentInstance?: EquipmentInstance
+) => void;
 type RemoveCallback = (instance: string, index: number) => void;
 type AcceptCallback = (message?: string) => void;
 interface OfferedItem {
@@ -55,7 +64,7 @@ export default class Trade {
         if (this.isAdded(index)) return;
 
         // In case of client-side packet manipulation.
-        if (isNaN(count) || count < 1) return;
+        if (!Number.isInteger(count) || count < 1) return;
 
         let offerIndex = this.getEmptySlot();
 
@@ -66,7 +75,7 @@ export default class Trade {
         let slot = this.player.inventory.get(index);
 
         // Ensure the slot exists and is not empty.
-        if (slot?.isEmpty()) return;
+        if (!slot || slot.isEmpty()) return;
 
         // Create an item instance and make necessary changes to it.
         let item = this.player.inventory.getItem(slot);
@@ -78,7 +87,11 @@ export default class Trade {
         if (item.undroppable) return this.player.notify('misc:CANNOT_TRADE_ITEM', '', 'TRADE');
 
         // Handle existing items in the trade.
-        let existingIndex = this.hasItem(slot.key);
+        let existingIndex = Number(
+            Object.keys(this.itemsOffered).find(
+                (key) => this.itemsOffered[Number(key)]?.inventoryIndex === index
+            ) ?? -1
+        );
 
         /**
          * Used for handling either existing items or new items. If the item doesn't exist
@@ -125,7 +138,13 @@ export default class Trade {
         this.getActiveTrade()!.accepted = false;
 
         // Callbacks for both instances of the trade.
-        this.signalAdd(this.player.instance, trueIndex, item.count, item.key);
+        this.signalAdd(
+            this.player.instance,
+            trueIndex,
+            item.count,
+            item.key,
+            item.equipmentInstance
+        );
     }
 
     /**
@@ -136,9 +155,15 @@ export default class Trade {
      * @param key The key of the item we are adding.
      */
 
-    private signalAdd(instance: string, offerIndex: number, count: number, key: string): void {
-        this.addCallback?.(instance, offerIndex, count, key);
-        this.getActiveTrade()?.addCallback?.(instance, offerIndex, count, key);
+    private signalAdd(
+        instance: string,
+        offerIndex: number,
+        count: number,
+        key: string,
+        equipmentInstance?: EquipmentInstance
+    ): void {
+        this.addCallback?.(instance, offerIndex, count, key, equipmentInstance);
+        this.getActiveTrade()?.addCallback?.(instance, offerIndex, count, key, equipmentInstance);
     }
 
     /**
@@ -174,26 +199,14 @@ export default class Trade {
             // A trade is marked in progress as soon as it passes majority of checks and the exchange begins.
             if (this.inProgress) return;
 
-            let emptySlots = this.player.inventory.getEmptySlots(),
-                otherPlayerEmptySlots = this.activeTrade?.inventory.getEmptySlots(),
-                offeredCount = this.getTotalOfferedCount(),
-                otherOfferedCount = this.getActiveTrade()?.getTotalOfferedCount();
-
-            // Ensure we have some number we're working with for empty slots.
-            if (otherPlayerEmptySlots === undefined || otherOfferedCount === undefined) {
-                this.accepted = false;
+            let other = this.getActiveTrade();
+            if (!other || !this.offersStillValid() || !other.offersStillValid()) {
+                this.close();
                 return;
             }
 
-            // Positive diff is we're offering more than other player, negative diff is we're being offered more.
-            let diff = offeredCount - otherOfferedCount;
-
-            // The difference indicates who is geting more items than they have available spaces
-            if (diff !== emptySlots) {
-                if (diff < 0 && emptySlots < Math.abs(diff)) return this.notEnoughSpace();
-                if (diff > 0 && otherPlayerEmptySlots < diff)
-                    return this.getActiveTrade()?.notEnoughSpace();
-            }
+            if (!this.canReceive(other)) return this.notEnoughSpace();
+            if (!other.canReceive(this)) return other.notEnoughSpace();
 
             return this.exchange();
         }
@@ -345,6 +358,35 @@ export default class Trade {
         }
 
         this.close();
+    }
+
+    private offersStillValid(): boolean {
+        return Object.values(this.itemsOffered).every((offer) => {
+            if (!offer) return true;
+            let slot = this.player.inventory.get(offer.inventoryIndex);
+            return (
+                !!slot &&
+                slot.key === offer.item.key &&
+                slot.count >= offer.item.count &&
+                slot.equipmentInstance?.uid === offer.item.equipmentInstance?.uid &&
+                JSON.stringify(slot.equipmentInstance) ===
+                    JSON.stringify(offer.item.equipmentInstance) &&
+                JSON.stringify(slot.enchantments) === JSON.stringify(offer.item.enchantments)
+            );
+        });
+    }
+
+    private canReceive(other: Trade): boolean {
+        let inventory = new Inventory(this.player.inventory.size),
+            fits = true;
+
+        // Use the same removal and add rules as the real exchange, without mutating it.
+        inventory.load(this.player.inventory.serialize(true).slots);
+        this.forEachOfferedItem((item, index) => inventory.remove(index, item.count));
+        other.forEachOfferedItem((item) => {
+            if (fits && inventory.add(item.copy()) !== item.count) fits = false;
+        });
+        return fits;
     }
 
     /**
@@ -500,18 +542,6 @@ export default class Trade {
      * Looks through all the items and returns index of the item if it exists.
      * @param key Key of the item to look for.
      */
-
-    private hasItem(key: string): number {
-        let index = -1;
-
-        for (let i in this.itemsOffered) {
-            let item = this.itemsOffered[i];
-
-            if (item && item.item.key === key) return parseInt(i);
-        }
-
-        return index;
-    }
 
     /**
      * Checks if the item is already added to the trade.

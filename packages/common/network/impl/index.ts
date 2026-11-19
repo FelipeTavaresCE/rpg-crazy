@@ -60,5 +60,6 @@ export type {
     GambitRule,
     OfflineHuntReport,
     OfflineHuntMob,
-    OfflineHuntSnapshot
+    OfflineHuntSnapshot,
+    AutoHuntEquipment
 } from './autohunt';

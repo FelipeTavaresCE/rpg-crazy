@@ -23,11 +23,14 @@ interface StoreInfo {
     allowedItems?: string[];
     restricted?: boolean;
     lastUpdate?: number;
+    resaleEquipment?: Set<Item>;
 }
 
 interface Store {
     [key: string]: StoreInfo;
 }
+
+const MAX_RESALE_EQUIPMENT = 100;
 
 /**
  * Shops are globally controlled and updated
@@ -102,6 +105,7 @@ export default class Stores {
         for (let key in this.stores) {
             let store = this.stores[key];
 
+            this.compactSoldOutEquipment(key);
             if (!this.canRefresh(store)) continue;
 
             this.stockItems(store);
@@ -109,6 +113,23 @@ export default class Stores {
 
             store.lastUpdate = Date.now();
         }
+    }
+
+    private compactSoldOutEquipment(key: string): void {
+        let store = this.stores[key];
+        if (!store.resaleEquipment?.size) return;
+
+        let hasViewer = false;
+        this.world.entities.forEachPlayer((player: Player) => {
+            if (player.storeOpen === key) hasViewer = true;
+        });
+        if (hasViewer) return;
+
+        store.items = store.items.filter((item) => {
+            if (!store.resaleEquipment?.has(item) || item.count > 0) return true;
+            store.resaleEquipment.delete(item);
+            return false;
+        });
     }
 
     /**
@@ -156,6 +177,7 @@ export default class Stores {
 
         if (!store) return log.debug(`[${player.username}] ${t('store:INVALID_STORE')}.`);
 
+        this.compactSoldOutEquipment(npc.store);
         player.send(new StorePacket(Opcodes.Store.Open, this.serialize(npc.store)));
 
         player.storeOpen = npc.store;
@@ -173,9 +195,13 @@ export default class Stores {
 
     public purchase(player: Player, storeKey: string, index: number, count = 1): void {
         if (!this.verifyStore(player, storeKey)) return;
+        if (!Number.isInteger(count) || count < 1) return;
 
         let store = this.stores[storeKey],
             item = store.items[index];
+
+        if (!item)
+            return log.error(`${player.username} ${t('store:PURCHASE_INVALID_STORE')}${storeKey}.`);
 
         // Prevent hollow admins from buying any of the items.
         if (player.isHollowAdmin()) return player.notify('store:HOLLOW_ADMIN');
@@ -186,10 +212,6 @@ export default class Stores {
         // First and foremost check the user has enough space.
         if (!player.inventory.hasSpace() && !player.inventory.hasItem(item.key))
             return player.notify('store:NOT_ENOUGH_SPACE');
-
-        // Check if item exists
-        if (!item)
-            return log.error(`${player.username} ${t('store:PURCHASE_INVALID_STORE')}${storeKey}.`);
 
         if (item.count !== -1) {
             if (item.count < 1) return player.notify('store:ITEM_OUT_OF_STOCK');
@@ -205,7 +227,11 @@ export default class Stores {
         if (currency < 0) return player.notify('store:NOT_ENOUGH_CURRENCY');
 
         // Clone the item we are adding
-        let itemToAdd = item.copy();
+        let resale = store.resaleEquipment?.has(item),
+            itemToAdd =
+                item.equipmentInstance && !resale
+                    ? new Item(item.key, -1, -1, false, count)
+                    : item.copy();
 
         itemToAdd.count = count;
 
@@ -214,16 +240,13 @@ export default class Stores {
 
         if (amount < 1) return;
 
-        if (item.count > 0) {
+        if (item.count > 0)
             // Decrement the item count by the amount we are buying.
             item.count -= amount;
 
-            // Remove item from store if it is out of stock and not original to the store.
-            if (item.count < 1 && this.isOriginalItem(storeKey, item.key))
-                store.items = store.items.filter((storeItem) => {
-                    return storeItem.key !== item.key;
-                });
-        }
+        // Remove item from store if it is out of stock and not original to the store.
+        // Keep sold-out entries in place: other buyers may have a dialog open
+        // with an index into this list.
 
         player.inventory.remove(currency, item.price * amount);
 
@@ -284,6 +307,11 @@ export default class Stores {
             price = storeItem?.price || item.price, // Price of the item being sold.
             totalCoins = this.getTotalCost(count, price, storeItem?.count); // Amount of coins the player will be receiving.
 
+        if (item.equipmentInstance && (store.resaleEquipment?.size || 0) >= MAX_RESALE_EQUIPMENT)
+            return player.notify(
+                'This store cannot accept more equipment. Move away and try again later.'
+            );
+
         // Total amount of coins is invalid, this shouldn't technically happen.
         if (totalCoins < 0) return player.notify('store:CANNOT_SELL_ITEM');
 
@@ -295,7 +323,11 @@ export default class Stores {
 
         // Increment the item count or add to store only if the player isn't a cheater :)
         if (!player.isCheater() && !player.isHollowAdmin())
-            if (!storeItem?.count) store.items.push(item);
+            if (item.equipmentInstance) {
+                item.price = price;
+                store.items.push(item);
+                (store.resaleEquipment ||= new Set()).add(item);
+            } else if (!storeItem?.count) store.items.push(item);
             else if (storeItem?.count !== -1) storeItem.count += count;
 
         // Sync up new store data to all players.
@@ -518,7 +550,11 @@ export default class Stores {
                 key: item.key,
                 name: item.name,
                 count: item.count,
-                price: item.price
+                price: item.price,
+                equipmentInstance: store.resaleEquipment?.has(item)
+                    ? item.equipmentInstance
+                    : undefined,
+                enchantments: store.resaleEquipment?.has(item) ? item.enchantments : undefined
             });
 
         return {

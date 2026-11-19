@@ -7,6 +7,7 @@ import rawData from '../../../../../data/mobs.json';
 import Spawns from '../../../../../data/spawns.json';
 import dropTables from '../../../../../data/tables.json';
 import PluginIndex from '../../../../../data/plugins/mobs';
+import { isEclipseAt } from '../../../../../../../src/engine/world-cycle';
 
 import log from '@kaetram/common/util/log';
 import Utils from '@kaetram/common/util/utils';
@@ -48,6 +49,7 @@ export default class Mob extends Character {
     public chest!: Chest; // Used for mimics since they belong to a chest
 
     public boss = false;
+    public portador = false;
     public respawnable = true;
     public miniboss = false;
     public roaming = true; // Roaming is true by default
@@ -62,6 +64,7 @@ export default class Mob extends Character {
     private attackStats: Stats = Utils.getEmptyStats();
     private defenseStats: Stats = Utils.getEmptyStats();
     private bonuses: Bonuses = Utils.getEmptyBonuses();
+    private eclipseEmpowered = isEclipseAt(Date.now());
 
     private drops: MobDrop[] = [];
     private dropTables: string[] = [];
@@ -115,7 +118,10 @@ export default class Mob extends Character {
      */
 
     private loadData(data: MobData): void {
-        if (data.hitPoints) this.hitPoints.updateHitPoints(data.hitPoints);
+        if (data.hitPoints)
+            this.hitPoints.updateHitPoints(
+                this.eclipseEmpowered ? Math.ceil(data.hitPoints * 1.3) : data.hitPoints
+            );
 
         this.name = data.name || this.name;
         this.description = data.description || this.description;
@@ -123,7 +129,17 @@ export default class Mob extends Character {
         this.dropTables = data.dropTables || this.dropTables;
         this.level = data.level || this.level;
         this.skills = data.skills || this.skills;
-        this.attackStats = data.attackStats || this.attackStats;
+        this.attackStats = data.attackStats
+            ? this.eclipseEmpowered
+                ? {
+                      crush: Math.ceil(data.attackStats.crush * 1.3),
+                      slash: Math.ceil(data.attackStats.slash * 1.3),
+                      stab: Math.ceil(data.attackStats.stab * 1.3),
+                      archery: Math.ceil(data.attackStats.archery * 1.3),
+                      magic: Math.ceil(data.attackStats.magic * 1.3)
+                  }
+                : data.attackStats
+            : this.attackStats;
         this.defenseStats = data.defenseStats || this.defenseStats;
         this.bonuses = data.bonuses || this.bonuses;
         this.attackRange = data.attackRange || this.attackRange;
@@ -713,6 +729,7 @@ export default class Mob extends Character {
         data.hitPoints = this.hitPoints.getHitPoints();
         data.maxHitPoints = this.hitPoints.getMaxHitPoints();
         data.attackRange = this.attackRange;
+        data.portador = this.portador;
 
         // Include the display info in the packet if the player parameter is specified.
         if (player) data.displayInfo = this.getDisplayInfo(player);

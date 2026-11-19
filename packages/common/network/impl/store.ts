@@ -3,6 +3,7 @@ import Packet from '../packet';
 import { Packets } from '@kaetram/common/network';
 
 import type { Opcodes } from '@kaetram/common/network';
+import type { Enchantments, EquipmentInstance } from '@kaetram/common/types/item';
 
 /// INFO FROM THE STORE JSON ///
 
@@ -32,6 +33,8 @@ export interface SerializedStoreItem {
     count: number;
     price: number;
     index?: number;
+    equipmentInstance?: EquipmentInstance;
+    enchantments?: Enchantments;
 }
 
 export interface SerializedStoreInfo {

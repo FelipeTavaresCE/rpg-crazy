@@ -6,6 +6,7 @@ import type Game from '../../../game';
 
 export default class Mob extends Character {
     public hiddenName = false;
+    public portador = false;
 
     public constructor(instance: string, game: Game) {
         super(instance, Modules.EntityType.Mob, game);

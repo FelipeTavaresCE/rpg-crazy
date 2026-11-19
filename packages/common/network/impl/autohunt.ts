@@ -7,6 +7,22 @@ export type AutoHuntRule =
     | 'disabled';
 export type AutoHuntPosture = 'balance' | 'advance' | 'guard';
 export type CombatStance = 'Equilíbrio' | 'Avanço' | 'Guarda';
+export const AUTO_RECYCLE_RARITIES = ['common', 'uncommon', 'rare', 'epic'] as const;
+export type AutoRecycleRarity = (typeof AUTO_RECYCLE_RARITIES)[number];
+
+export interface AutoHuntEquipment {
+    id: string;
+    name: string;
+    slot: string;
+    cards: string[];
+    gems: string[];
+    refineLevel: number;
+    isScarred: boolean;
+    operations: {
+        forge: { available: boolean; reason?: string };
+        repair: { available: boolean; reason?: string };
+    };
+}
 
 export type GambitCondition =
     | { type: 'HP_BELOW_PERCENT'; percent: number }
@@ -36,8 +52,13 @@ export interface OfflineHuntReport {
     lootCollected: number;
     lootOverflow: number;
     reason: string;
+    eclipseDurationMs?: number;
     portadorKills?: number;
     legendaryAnnouncements?: string[];
+    deaths?: number;
+    retainedDrops?: string[];
+    superiorGear?: string[];
+    superiorGearComparisonIncomplete?: boolean;
 }
 
 export interface OfflineHuntMob {
@@ -72,6 +93,7 @@ export interface OfflineHuntSnapshot {
     maxHitPoints: number;
     hitPoints: number;
     mana: number;
+    maxMana?: number;
     resourceType: 'mana' | 'arrows' | 'none';
     resourceCount: number;
     resourcePerAttack: number;
@@ -96,10 +118,14 @@ export interface OfflineHuntSnapshot {
 }
 
 export interface AutoHuntPacketData {
-    action: 'configure' | 'state' | 'report' | 'unlock-passive';
+    action: 'configure' | 'state' | 'report' | 'unlock-passive' | 'equipment-operation';
+    equipmentId?: string;
+    operation?: 'forge' | 'repair';
     enabled?: boolean;
     rules?: AutoHuntRule[];
     gambits?: GambitRule[];
+    autoRecycleRarities?: AutoRecycleRarity[];
+    equipment?: AutoHuntEquipment[];
     nodeId?: string;
     posture?: AutoHuntPosture;
     report?: OfflineHuntReport;

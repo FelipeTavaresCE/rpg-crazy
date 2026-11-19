@@ -58,7 +58,9 @@
     box-sizing: border-box;
     width: min(32em, calc(100vw - 2em));
     max-height: 85vh;
+    padding: 1.25em;
 
+    line-height: 1.4;
     color: #eee;
 
     background: #211b17;
@@ -67,6 +69,26 @@
 
     &::backdrop {
         background: rgb(0 0 0 / 70%);
+    }
+
+    h2,
+    h3 {
+        color: #f1d49e;
+    }
+
+    h3 {
+        margin: 1em 0 0.35em;
+    }
+
+    p {
+        margin: 0.3em 0;
+        overflow-wrap: anywhere;
+    }
+
+    .offline-report-close {
+        min-height: 2.75em;
+        margin-top: 1em;
+        padding: 0.4em 1.25em;
     }
 }
 
