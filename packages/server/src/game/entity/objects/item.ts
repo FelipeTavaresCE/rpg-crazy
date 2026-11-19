@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import rawData from '../../../../data/items.json';
 import engineItemData from '../../../../../../src/data/items.json';
 import Entity from '../entity';
@@ -10,7 +12,14 @@ import { Modules } from '@kaetram/common/network';
 import type Player from '../character/player/player';
 import type { EntityData } from '@kaetram/common/types/entity';
 import type { Plugin } from '@kaetram/server/data/plugins/items';
-import type { Bonuses, Enchantments, ItemData, Light, Stats } from '@kaetram/common/types/item';
+import type {
+    Bonuses,
+    Enchantments,
+    EquipmentInstance,
+    ItemData,
+    Light,
+    Stats
+} from '@kaetram/common/types/item';
 
 interface RawData {
     [key: string]: ItemData;
@@ -20,6 +29,8 @@ const itemData: RawData = { ...rawData, ...engineItemData } as RawData;
 
 export default class Item extends Entity {
     private data: ItemData;
+    public equipmentInstance?: EquipmentInstance;
+    public legacyEquipment = false;
 
     // Item Data
     private itemType = 'object'; // weapon, armour, pendant, etc.
@@ -100,7 +111,8 @@ export default class Item extends Entity {
         public dropped = false,
         public count = -1,
         public enchantments: Enchantments = {},
-        public owner = ''
+        public owner = '',
+        equipmentInstance?: EquipmentInstance
     ) {
         super(Utils.createInstance(Modules.EntityType.Item), key, x, y);
 
@@ -151,6 +163,26 @@ export default class Item extends Entity {
         this.mediumBowl = this.data.mediumBowl || this.mediumBowl;
         this.pet = this.data.pet || this.pet;
 
+        // Ammunition is consumed and traded in stacks rather than as individual gear.
+        if (this.isEquippable() && this.getEquipmentType() !== Modules.Equipment.Arrows) {
+            this.stackable = false;
+            this.maxStackSize = 1;
+            this.equipmentInstance = equipmentInstance
+                ? {
+                      ...equipmentInstance,
+                      socketedCards: [...(equipmentInstance.socketedCards || [])],
+                      socketedGems: [...(equipmentInstance.socketedGems || [])]
+                  }
+                : {
+                      uid: randomUUID(),
+                      itemId: key,
+                      refineLevel: 0,
+                      isScarred: false,
+                      socketedCards: [],
+                      socketedGems: []
+                  };
+        }
+
         if (this.data.plugin) this.loadPlugin();
     }
 
@@ -175,15 +207,18 @@ export default class Item extends Entity {
 
     public copy(): this {
         // These are weird hacks because of pointer references junk.
-        return new Item(
+        let item = new Item(
             `${this.key}`,
             this.x,
             this.y,
             this.dropped,
             Utils.sanitizeNumber(this.count),
             this.copyEnchantments(),
-            this.owner
+            this.owner,
+            this.equipmentInstance
         ) as this;
+        item.legacyEquipment = this.legacyEquipment;
+        return item;
     }
 
     /**
@@ -195,7 +230,7 @@ export default class Item extends Entity {
     private copyEnchantments(): Enchantments {
         let enchantments: Enchantments = {};
 
-        for (let key in this.enchantments) enchantments[key] = this.enchantments[key];
+        for (let key in this.enchantments) enchantments[key] = { ...this.enchantments[key] };
 
         return enchantments;
     }
@@ -238,7 +273,10 @@ export default class Item extends Entity {
      */
 
     public respawn(): void {
-        setTimeout(() => this.respawnCallback?.(), this.respawnDelay);
+        setTimeout(() => {
+            if (this.equipmentInstance) this.equipmentInstance.uid = randomUUID();
+            this.respawnCallback?.();
+        }, this.respawnDelay);
     }
 
     /**
@@ -679,6 +717,7 @@ export default class Item extends Entity {
 
         data.count = this.count;
         data.enchantments = this.enchantments;
+        data.equipmentInstance = this.equipmentInstance;
 
         return data;
     }

@@ -1,4 +1,4 @@
-import type { Bonuses, Enchantments, Stats } from './item';
+import type { Bonuses, Enchantments, EquipmentInstance, Stats } from './item';
 
 export type SlotType = 'inventory' | 'bank';
 
@@ -12,6 +12,7 @@ export interface SlotData {
     key: string;
     count: number;
     enchantments: Enchantments;
+    equipmentInstance?: EquipmentInstance;
     name?: string;
     description?: string;
     edible?: boolean;

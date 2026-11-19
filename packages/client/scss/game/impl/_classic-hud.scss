@@ -1,0 +1,170 @@
+.classic-hud {
+    pointer-events: none;
+
+    position: fixed;
+    z-index: 20;
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+
+    width: min(22rem, 90vw);
+    max-height: 80dvh;
+
+    font: 14px/1.4 sans-serif;
+    color: #f3ead4;
+
+    &[data-dock='left'] {
+        top: 0.5rem;
+        left: 0.5rem;
+    }
+
+    &[data-dock='right'] {
+        top: 0.5rem;
+        right: 0.5rem;
+    }
+
+    &[data-dock='bottom'] {
+        right: 0.5rem;
+        bottom: 0.5rem;
+        left: 0.5rem;
+
+        width: auto;
+        max-height: 50dvh;
+    }
+
+    button,
+    input,
+    select {
+        max-width: 100%;
+
+        font: inherit;
+        color: #f3ead4;
+
+        background: #30291f;
+        border: 1px solid #aa9566;
+        border-radius: 0.2rem;
+    }
+
+    button,
+    select {
+        min-height: 2rem;
+    }
+
+    button,
+    select,
+    input,
+    label {
+        cursor: pointer;
+    }
+
+    button {
+        padding: 0.25rem 0.5rem;
+    }
+
+    button:disabled,
+    input:disabled,
+    select:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+
+    :focus-visible {
+        outline: 2px solid #ffe28c;
+        outline-offset: 2px;
+    }
+
+    p {
+        margin: 0.4rem 0;
+    }
+
+    &__toolbar,
+    &__panel {
+        pointer-events: auto;
+
+        padding: 0.5rem;
+
+        background: #17130fef;
+        border: 1px solid #aa9566;
+        border-radius: 0.25rem;
+    }
+
+    &__toolbar {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        align-self: flex-start;
+    }
+
+    &__panels {
+        pointer-events: auto;
+
+        overflow: auto;
+        overscroll-behavior: contain;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+
+        min-height: 0;
+    }
+
+    &__panels[hidden] {
+        display: none;
+    }
+
+    &__panel summary {
+        cursor: pointer;
+        font-weight: bold;
+    }
+
+    &__field {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+
+        margin: 0.3rem 0;
+    }
+
+    &__field input:not([type='checkbox']) {
+        width: 9rem;
+    }
+
+    &__equipment {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.25rem 0.75rem;
+    }
+
+    &__equipment dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+    }
+
+    &__rule {
+        min-width: 0;
+        margin: 0.5rem 0;
+        border: 1px solid #806e4a;
+    }
+
+    &__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+    }
+
+    &__error {
+        color: #ffb6a8;
+    }
+}
+
+@media (width <= 600px) {
+    .classic-hud {
+        width: min(20rem, 85vw);
+        max-height: 55dvh;
+    }
+
+    .classic-hud[data-dock='bottom'] {
+        max-height: 45dvh;
+    }
+}

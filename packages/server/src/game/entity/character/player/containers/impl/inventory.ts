@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import Container from '../container';
 
 import InventoryEn from '@kaetram/common/text/en/inventory';
@@ -28,7 +30,10 @@ export default class Inventory extends Container {
             return 0;
         }
 
-        item.despawn(true);
+        if (amount < item.count) {
+            item.count -= amount;
+            if (item.equipmentInstance) item.equipmentInstance.uid = randomUUID();
+        } else item.despawn(true);
 
         return amount;
     }

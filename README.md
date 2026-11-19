@@ -28,6 +28,14 @@ Tap Tap Adventure (TTA). In 2017, Kaetram was started as a complete re-write of 
 
 Live Version &ndash; <https://kaetram.com>
 
+### Classic HUD
+
+The collapsed Classic HUD can be expanded and docked without replacing the existing interface.
+It displays equipped and inventory equipment and configures server-controlled auto-hunt gambits,
+stance, and offline-drop recycling. Forge, refine, and repair are unavailable; no materials are
+consumed by the HUD. Stance effects apply during auto-hunt. Recycling keeps unclassified drops,
+cards, relics, and legendary items regardless of the selected rarities.
+
 Join us on Discord &ndash; <https://discord.gg/MmbGAaw>
 
 ![Demo 1](https://i.imgur.com/PJdVts7.png)

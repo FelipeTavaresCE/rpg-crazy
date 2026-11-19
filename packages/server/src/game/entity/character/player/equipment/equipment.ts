@@ -8,7 +8,13 @@ import Utils from '@kaetram/common/util/utils';
 
 import type Item from '../../../objects/item';
 import type { Modules } from '@kaetram/common/network';
-import type { Bonuses, Enchantments, Light, Stats } from '@kaetram/common/types/item';
+import type {
+    Bonuses,
+    Enchantments,
+    EquipmentInstance,
+    Light,
+    Stats
+} from '@kaetram/common/types/item';
 import type { EquipmentData } from '@kaetram/common/network/impl/equipment';
 
 export default class Equipment {
@@ -20,6 +26,8 @@ export default class Equipment {
     public movementModifier = -1;
 
     public light: Light = {};
+    public equipmentInstance?: EquipmentInstance;
+    public legacyEquipment = false;
 
     // Stats
     public attackStats: Stats = Utils.getEmptyStats();
@@ -46,6 +54,8 @@ export default class Equipment {
         this.name = item.name;
         this.count = item.count;
         this.enchantments = item.enchantments;
+        this.equipmentInstance = item.equipmentInstance;
+        this.legacyEquipment = item.legacyEquipment;
         this.poisonous = item.poisonous;
         this.attackStats = item.attackStats;
         this.defenseStats = item.defenseStats;
@@ -63,6 +73,8 @@ export default class Equipment {
 
         this.count = -1;
         this.enchantments = {};
+        this.equipmentInstance = undefined;
+        this.legacyEquipment = false;
 
         this.name = '';
 
@@ -109,6 +121,7 @@ export default class Equipment {
             count: this.count,
             enchantments: this.enchantments
         };
+        if (this.equipmentInstance) data.equipmentInstance = this.equipmentInstance;
 
         // Includes information only relevant to the client.
         if (clientInfo) {

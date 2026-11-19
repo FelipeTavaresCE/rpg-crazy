@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import Friends from './friends';
 import Handler from './handler';
 import Quests from './quests';
@@ -20,7 +22,10 @@ import dropTables from '../../../../../data/tables.json';
 import engineItemData from '../../../../../../../src/data/items.json';
 import engineMonsterData from '../../../../../../../src/data/monsters.json';
 import {
+    collectOfflineDrops,
     evaluateOfflineGambit,
+    summarizeSuperiorOfflineGear,
+    simulateOfflineCombat,
     simulateOfflineLoot
 } from '../../../../../../../src/engine/offline-simulator';
 import { getEclipseOverlapDuration } from '../../../../../../../src/engine/world-cycle';
@@ -53,6 +58,7 @@ import log from '@kaetram/common/util/log';
 import config from '@kaetram/common/config';
 import { PacketType } from '@kaetram/common/network/modules';
 import { Opcodes, Modules, Packets } from '@kaetram/common/network';
+import { AUTO_RECYCLE_RARITIES } from '@kaetram/common/network/impl/autohunt';
 import { Team } from '@kaetram/common/api/minigame';
 import Packet from '@kaetram/common/network/packet';
 import {
@@ -91,13 +97,15 @@ import type Minigame from '../../../minigames/minigame';
 import type Entities from '../../../../controllers/entities';
 import type MongoDB from '@kaetram/common/database/mongodb/mongodb';
 import type { EntityDisplayInfo } from '@kaetram/common/types/entity';
-import type { Bonuses, ItemData, Stats } from '@kaetram/common/types/item';
+import type { Bonuses, EquipmentInstance, ItemData, Stats } from '@kaetram/common/types/item';
 import type { ProcessedDoor } from '@kaetram/common/types/map';
 import type { MobDrop, MobDropTable, RawMobData } from '@kaetram/common/types/mob';
 import type { PlayerData } from '@kaetram/common/network/impl/player';
 import type { PointerData } from '@kaetram/common/network/impl/pointer';
 import type { PlayerInfo } from '@kaetram/common/database/mongodb/creator';
 import type {
+    AutoHuntEquipment,
+    AutoRecycleRarity,
     AutoHuntPacketData,
     AutoHuntPosture,
     AutoHuntRule,
@@ -107,7 +115,7 @@ import type {
     OfflineHuntReport,
     OfflineHuntSnapshot
 } from '@kaetram/common/network/impl/autohunt';
-import type { LootDrop, ItemRarity } from '../../../../../../../src/systems/loot-and-economy';
+import type { LootDrop } from '../../../../../../../src/systems/loot-and-economy';
 import type { MasteryProgress } from '../../../../../../../src/systems/mastery-system';
 
 type KillCallback = (character: Character) => void;
@@ -163,6 +171,7 @@ export default class Player extends Character {
     public requestedPing = false;
     public overrideMovementSpeed = -1;
     public autoHuntEnabled = false;
+    private autoHuntStateQueued = false;
     public autoHuntRules: AutoHuntRule[] = ['heal-low', 'guard-low', 'advance-high'];
     public gambitRules: GambitRule[] = sanitizeGambitRules();
     public autoHuntPosture: AutoHuntPosture = 'balance';
@@ -173,7 +182,7 @@ export default class Player extends Character {
     public autoHuntReport?: OfflineHuntReport;
     public weaponMastery: MasteryProgress = {};
     public regionKillCounts: { [key: string]: number } = {};
-    public autoRecycleRarities: ItemRarity[] = [];
+    public autoRecycleRarities: AutoRecycleRarity[] = [];
     public socketedCards: { [key: string]: string[] } = {};
     public socketedGems: { [key: string]: string[] } = {};
     public unlockedPassiveNodes: string[] = [];
@@ -323,7 +332,11 @@ export default class Player extends Character {
         this.autoHuntReport = data.autoHuntReport;
         this.weaponMastery = data.weaponMastery || {};
         this.regionKillCounts = data.regionKillCounts || {};
-        this.autoRecycleRarities = data.autoRecycleRarities || [];
+        this.autoRecycleRarities = Array.isArray(data.autoRecycleRarities)
+            ? [...new Set(data.autoRecycleRarities)].filter((rarity): rarity is AutoRecycleRarity =>
+                  (AUTO_RECYCLE_RARITIES as readonly string[]).includes(rarity)
+              )
+            : [];
         this.socketedCards = data.socketedCards || {};
         this.socketedGems = data.socketedGems || {};
         this.unlockedPassiveNodes = (data.unlockedPassiveNodes || []).filter(
@@ -340,9 +353,16 @@ export default class Player extends Character {
         this.friends.load(data.friends);
 
         this.loadSkills();
-        this.loadEquipment();
-        this.loadInventory();
-        this.loadBank();
+        await Promise.all([this.loadEquipment(), this.loadInventory(), this.loadBank()]);
+        if (this.migrateLegacySockets() && this.database.creator && !config.skipDatabase)
+            try {
+                await this.database.creator.saveLegacyEquipmentMigration(this);
+            } catch (error) {
+                log.error(`Could not persist equipment migration for ${this.username}.`, error);
+                this.connection.reject('error');
+                return;
+            }
+
         this.loadStatistics();
         this.loadAbilities();
 
@@ -371,24 +391,121 @@ export default class Player extends Character {
      * Loads the equipment data from the database.
      */
 
-    public loadEquipment(): void {
-        this.database.loader?.loadEquipment(this, this.equipment.load.bind(this.equipment));
+    public loadEquipment(): Promise<void> {
+        return new Promise((resolve) => {
+            if (!this.database.loader) {
+                resolve();
+                return;
+            }
+            this.database.loader.loadEquipment(this, (data) => {
+                this.equipment.load(data);
+                resolve();
+            });
+        });
     }
 
     /**
      * Loads the inventory data from the database.
      */
 
-    public loadInventory(): void {
-        this.database.loader?.loadInventory(this, this.inventory.load.bind(this.inventory));
+    public loadInventory(): Promise<void> {
+        return new Promise((resolve) => {
+            if (!this.database.loader) {
+                resolve();
+                return;
+            }
+            this.database.loader.loadInventory(this, (data) => {
+                this.inventory.load(data);
+                resolve();
+            });
+        });
     }
 
     /**
      * Loads the bank data from the database.
      */
 
-    public loadBank(): void {
-        this.database.loader?.loadBank(this, this.bank.load.bind(this.bank));
+    public loadBank(): Promise<void> {
+        return new Promise((resolve) => {
+            if (!this.database.loader) {
+                resolve();
+                return;
+            }
+            this.database.loader.loadBank(this, (data) => {
+                this.bank.load(data);
+                resolve();
+            });
+        });
+    }
+
+    private legacyMigrationUid(key: string): string {
+        let hash = createHash('sha256')
+            .update(JSON.stringify(['legacy-equipment-sockets', this.username, key]))
+            .digest('hex');
+        return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(
+            17,
+            20
+        )}-${hash.slice(20, 32)}`;
+    }
+
+    private migrateLegacySockets(): boolean {
+        let migrated = false,
+            recovered = new Set<string>(),
+            inspect = (key: string, instance: EquipmentInstance) => {
+                if (instance.uid === this.legacyMigrationUid(key)) recovered.add(key);
+            },
+            migrate = (key: string, instance: EquipmentInstance) => {
+                if (!(key in this.socketedCards) && !(key in this.socketedGems)) return;
+                if (!recovered.has(key)) {
+                    instance.uid = this.legacyMigrationUid(key);
+                    instance.socketedCards = [...(this.socketedCards[key] || [])];
+                    instance.socketedGems = [...(this.socketedGems[key] || [])];
+                }
+                delete this.socketedCards[key];
+                delete this.socketedGems[key];
+                migrated = true;
+            };
+
+        this.equipment.forEachEquipment((equipment) => {
+            if (equipment.equipmentInstance) inspect(equipment.key, equipment.equipmentInstance);
+        });
+        this.inventory.forEachEquipmentInstance(inspect);
+        this.bank.forEachEquipmentInstance(inspect);
+
+        // Finish a previously interrupted migration even if no legacy copy remains.
+        for (let key of recovered)
+            if (key in this.socketedCards || key in this.socketedGems) {
+                delete this.socketedCards[key];
+                delete this.socketedGems[key];
+                migrated = true;
+            }
+
+        // Per-template legacy data is ambiguous: assign it once, preferring equipped gear.
+        this.equipment.forEachEquipment((equipment) => {
+            if (equipment.legacyEquipment && equipment.equipmentInstance) {
+                migrated = true;
+                migrate(equipment.key, equipment.equipmentInstance);
+            }
+        });
+        this.inventory.forEachEquipmentInstance((key, instance, legacy) => {
+            if (legacy) {
+                migrated = true;
+                migrate(key, instance);
+            }
+        });
+        this.bank.forEachEquipmentInstance((key, instance, legacy) => {
+            if (legacy) {
+                migrated = true;
+                migrate(key, instance);
+            }
+        });
+
+        if (migrated) {
+            this.equipment.refresh();
+            this.inventory.loadCallback?.();
+            this.bank.loadCallback?.();
+        }
+        return migrated;
     }
 
     /**
@@ -530,6 +647,7 @@ export default class Player extends Character {
         }
 
         this.send(new WelcomePacket(this.serialize(false, true, true)));
+        this.sendAutoHuntState();
 
         if (this.autoHuntReport) {
             this.autoHuntReport = undefined;
@@ -870,6 +988,8 @@ export default class Player extends Character {
     }
 
     public configureAutoHunt(data: AutoHuntPacketData): void {
+        if (!this.ready || !data || typeof data !== 'object') return;
+
         if (data.action === 'unlock-passive') {
             if (data.nodeId) this.unlockPassiveNode(data.nodeId);
             return;
@@ -877,7 +997,50 @@ export default class Player extends Character {
 
         if (data.action !== 'configure') return;
 
-        if (Array.isArray(data.gambits)) this.gambitRules = sanitizeGambitRules(data.gambits);
+        let rarities = new Set<AutoRecycleRarity>(AUTO_RECYCLE_RARITIES),
+            gambits = data.gambits === undefined ? undefined : sanitizeGambitRules(data.gambits);
+
+        if (
+            (data.enabled !== undefined && typeof data.enabled !== 'boolean') ||
+            (data.posture !== undefined &&
+                !['balance', 'advance', 'guard'].includes(data.posture)) ||
+            (data.gambits !== undefined &&
+                (!Array.isArray(data.gambits) ||
+                    data.gambits.length > 5 ||
+                    gambits!.length !== data.gambits.length ||
+                    data.gambits.some(
+                        (rule) =>
+                            rule.id.length > 64 ||
+                            (rule.enabled !== undefined && typeof rule.enabled !== 'boolean')
+                    ) ||
+                    gambits!.some((rule) => !rule.id.trim()) ||
+                    new Set(gambits!.map((rule) => rule.id)).size !== gambits!.length)) ||
+            (data.autoRecycleRarities !== undefined &&
+                (!Array.isArray(data.autoRecycleRarities) ||
+                    data.autoRecycleRarities.length > rarities.size ||
+                    data.autoRecycleRarities.some((rarity) => !rarities.has(rarity)) ||
+                    new Set(data.autoRecycleRarities).size !== data.autoRecycleRarities.length))
+        )
+            return this.sendAutoHuntState();
+
+        if (gambits)
+            this.gambitRules = gambits.map((rule) => ({
+                id: rule.id,
+                enabled: rule.enabled,
+                condition:
+                    rule.condition.type === 'HP_BELOW_PERCENT'
+                        ? { type: rule.condition.type, percent: rule.condition.percent }
+                        : rule.condition.type === 'ADJACENT_ENEMIES_GTE'
+                        ? { type: rule.condition.type, count: rule.condition.count }
+                        : { type: rule.condition.type },
+                action:
+                    rule.action.type === 'SWITCH_STANCE'
+                        ? { type: rule.action.type, stance: rule.action.stance }
+                        : { type: rule.action.type }
+            }));
+        if (data.posture !== undefined) this.autoHuntPosture = data.posture;
+        if (data.autoRecycleRarities !== undefined)
+            this.autoRecycleRarities = [...data.autoRecycleRarities];
 
         if (Array.isArray(data.rules)) {
             let validRules = new Set<AutoHuntRule>([
@@ -891,6 +1054,11 @@ export default class Player extends Character {
             this.autoHuntRules = data.rules
                 .slice(0, 3)
                 .filter((rule): rule is AutoHuntRule => validRules.has(rule));
+        }
+
+        if (data.enabled === undefined) {
+            this.save();
+            return this.sendAutoHuntState();
         }
 
         if (!data.enabled) {
@@ -907,6 +1075,7 @@ export default class Player extends Character {
             !this.hasEligibleMobNearby()
         ) {
             this.notify('Auto-Hunt is unavailable in this area or state.');
+            this.save();
             return this.sendAutoHuntState();
         }
 
@@ -1105,7 +1274,15 @@ export default class Player extends Character {
     }
 
     public getSocketedSkillGems(): string[] {
-        return [...(this.socketedGems[this.equipment.getWeapon().key] || [])];
+        return [...(this.equipment.getWeapon().equipmentInstance?.socketedGems || [])];
+    }
+
+    private getEquippedCards(): string[] {
+        let cards: string[] = [];
+        this.equipment.forEachEquipment((equipment) =>
+            cards.push(...(equipment.equipmentInstance?.socketedCards || []))
+        );
+        return cards;
     }
 
     public getVampiricGemHealing(damage: number): number {
@@ -1117,10 +1294,7 @@ export default class Player extends Character {
     }
 
     public getCardBonusAgainst(family = ''): number {
-        let bonuses = calculateCardAndRelicBonuses(
-            Object.values(this.socketedCards).flat(),
-            this.relics
-        );
+        let bonuses = calculateCardAndRelicBonuses(this.getEquippedCards(), this.relics);
         return (
             (bonuses.attack ?? 0) +
             (family === 'beast'
@@ -1142,7 +1316,43 @@ export default class Player extends Character {
         });
     }
 
-    private sendAutoHuntState(target?: string): void {
+    public queueAutoHuntState(): void {
+        if (!this.ready || this.autoHuntStateQueued) return;
+        this.autoHuntStateQueued = true;
+        queueMicrotask(() => {
+            this.autoHuntStateQueued = false;
+            if (this.ready && !this.connection.closed) this.sendAutoHuntState();
+        });
+    }
+
+    public sendAutoHuntState(target?: string): void {
+        let equipment: AutoHuntEquipment[] = [];
+        this.equipment.forEachEquipment((item) => {
+            let instance = item.equipmentInstance;
+            if (!instance) return;
+            equipment.push({
+                id: instance.uid,
+                name: item.name,
+                slot: `Equipped ${Modules.Equipment[item.type]}`,
+                cards: [...instance.socketedCards],
+                gems: [...instance.socketedGems],
+                refineLevel: instance.refineLevel,
+                isScarred: instance.isScarred
+            });
+        });
+        this.inventory.forEachSlot((slot) => {
+            let instance = slot.equipmentInstance;
+            if (!instance) return;
+            equipment.push({
+                id: instance.uid,
+                name: slot.name,
+                slot: `Inventory ${slot.index + 1}`,
+                cards: [...instance.socketedCards],
+                gems: [...instance.socketedGems],
+                refineLevel: instance.refineLevel,
+                isScarred: instance.isScarred
+            });
+        });
         this.send(
             new Packet(Packets.AutoHunt, undefined, {
                 action: 'state',
@@ -1150,6 +1360,8 @@ export default class Player extends Character {
                 rules: this.autoHuntRules,
                 gambits: this.gambitRules,
                 posture: this.autoHuntPosture,
+                autoRecycleRarities: this.autoRecycleRarities,
+                equipment,
                 target
             } satisfies AutoHuntPacketData)
         );
@@ -1234,10 +1446,7 @@ export default class Player extends Character {
                 rawItems[this.equipment.getWeapon().key]?.weaponFamily ||
                 rawItems[this.equipment.getWeapon().key]?.weaponType ||
                 this.equipment.getWeapon().key,
-            socketBonuses = calculateCardAndRelicBonuses(
-                Object.values(this.socketedCards).flat(),
-                this.relics
-            ),
+            socketBonuses = calculateCardAndRelicBonuses(this.getEquippedCards(), this.relics),
             rawMonsters = engineMonsterData as { [key: string]: { family: string } },
             weightedCardBonus =
                 (socketBonuses.attack ?? 0) +
@@ -1256,7 +1465,7 @@ export default class Player extends Character {
                     mobs.reduce((total, mob) => total + mob.count, 0),
             masteryLevel = this.weaponMastery[weaponFamily]?.level || 1,
             passiveBonuses = calculatePassiveBonuses(this.unlockedPassiveNodes),
-            weaponGems = this.socketedGems[this.equipment.getWeapon().key] || [],
+            weaponGems = this.getSocketedSkillGems(),
             maxHitPoints = this.hitPoints.getMaxHitPoints() * (1 + passiveBonuses.maxHitPoints),
             hitPoints =
                 (this.hitPoints.getHitPoints() / this.hitPoints.getMaxHitPoints()) * maxHitPoints;
@@ -1279,6 +1488,7 @@ export default class Player extends Character {
             maxHitPoints,
             hitPoints,
             mana: this.mana.getMana(),
+            maxMana: this.mana.getMaxMana(),
             resourceType: this.isMagic() ? 'mana' : this.isArcher() ? 'arrows' : 'none',
             resourceCount: this.isMagic()
                 ? this.mana.getMana()
@@ -1323,6 +1533,15 @@ export default class Player extends Character {
 
         if (
             !Number.isFinite(snapshot.startedAt) ||
+            !Number.isFinite(snapshot.hitPoints) ||
+            !Number.isFinite(snapshot.maxHitPoints) ||
+            snapshot.maxHitPoints <= 0 ||
+            !Number.isFinite(snapshot.mana) ||
+            !Number.isFinite(snapshot.resourceCount) ||
+            !Number.isFinite(snapshot.resourcePerAttack) ||
+            snapshot.resourcePerAttack < 0 ||
+            (snapshot.maxMana !== undefined &&
+                (!Number.isFinite(snapshot.maxMana) || snapshot.maxMana < 0)) ||
             !Array.isArray(snapshot.mobs) ||
             snapshot.mobs.length > 64
         )
@@ -1334,6 +1553,11 @@ export default class Player extends Character {
                 (mob) =>
                     Number.isFinite(mob.hitPoints) &&
                     Number.isFinite(mob.count) &&
+                    Number.isFinite(mob.attack) &&
+                    Number.isFinite(mob.defense) &&
+                    Number.isFinite(mob.level) &&
+                    Number.isFinite(mob.attackRate) &&
+                    Number.isFinite(mob.respawnDelay) &&
                     mob.hitPoints > 0 &&
                     mob.count > 0 &&
                     mob.count <= 100
@@ -1343,7 +1567,11 @@ export default class Player extends Character {
         if (population < 1) return;
 
         let healingItems = (snapshot.healingItems || []).filter(
-                (item) => Number.isFinite(item.count) && item.count > 0
+                (item) =>
+                    Number.isFinite(item.count) &&
+                    item.count > 0 &&
+                    Number.isFinite(item.hitPoints) &&
+                    Number.isFinite(item.mana)
             ),
             gambit = evaluateOfflineGambit({
                 ...snapshot,
@@ -1372,7 +1600,6 @@ export default class Player extends Character {
                         ? 'sword_cleave'
                         : `${skillFamily}_${skillFamily === 'bow' ? 'volley' : 'nova'}`
                     : undefined,
-            usesHealing = gambit?.action.type === 'USE_POTION_OR_HEAL',
             passiveBonuses = calculatePassiveBonuses(snapshot.unlockedPassiveNodes || []),
             eclipseDurationMs = getEclipseOverlapDuration(snapshot.startedAt, elapsed),
             eclipseMultiplier = elapsed > 0 ? 1 + (0.3 * eclipseDurationMs) / elapsed : 1,
@@ -1394,19 +1621,6 @@ export default class Player extends Character {
                         (offlinePosture === 'advance' ? 1.15 : 1)
                 )
             ),
-            healingBudget = usesHealing
-                ? healingItems
-                      .filter(
-                          (item) => Number.isFinite(item.hitPoints) && Number.isFinite(item.mana)
-                      )
-                      .reduce(
-                          (total, item) => ({
-                              hitPoints: total.hitPoints + item.hitPoints * item.count,
-                              mana: total.mana + item.mana * item.count
-                          }),
-                          { hitPoints: 0, mana: 0 }
-                      )
-                : { hitPoints: 0, mana: 0 },
             damageResult = calculateCombatDamage({
                 attackBonus: snapshot.attackBonus,
                 attribute: snapshot.attribute,
@@ -1450,8 +1664,9 @@ export default class Player extends Character {
                 damageResult.lifeSteal +
                 (skillDamageResult.lifeSteal - damageResult.lifeSteal) * skillFrequency,
             dps = damagePerHit * (1000 / effectiveAttackRate),
-            baseKillTime = dps > 0 ? averageHP / dps + 2.5 : Infinity,
-            attacksPerKill = Math.max(1, Math.ceil((baseKillTime * 1000) / effectiveAttackRate)),
+            attacksPerKill =
+                damagePerHit > 0 ? Math.max(1, Math.ceil(averageHP / damagePerHit)) : Infinity,
+            baseKillTime = (attacksPerKill * effectiveAttackRate) / 1000 + 2.5,
             respawnLimit = mobs.reduce(
                 (total, mob) => total + mob.count * (elapsed / Math.max(1000, mob.respawnDelay)),
                 0
@@ -1473,105 +1688,64 @@ export default class Player extends Character {
                           attackerLevel: Math.max(1, averageMobLevel)
                       })
                     : 0,
-            damageTakenPerKill =
-                mobDamagePerAttack *
-                Math.max(1, Math.ceil((baseKillTime * 1000) / Math.max(100, averageAttackRate))),
-            lifeStealPerKill = lifeStealPerAttack * Math.max(1, attacksPerKill),
-            recoveryTime = guardRegen > 0 ? damageTakenPerKill / guardRegen : 0,
-            killTime = baseKillTime + recoveryTime,
-            survivalLimit =
-                damageTakenPerKill > lifeStealPerKill
-                    ? Math.floor(
-                          (snapshot.hitPoints + healingBudget.hitPoints + guardRegen * seconds) /
-                              (damageTakenPerKill - lifeStealPerKill)
-                      )
-                    : Infinity,
-            resourceLimit =
-                snapshot.resourcePerAttack > 0
-                    ? Math.floor(
-                          (snapshot.resourceCount +
-                              (snapshot.resourceType === 'mana' ? healingBudget.mana : 0)) /
-                              (attacksPerKill * snapshot.resourcePerAttack)
-                      )
-                    : Infinity,
-            kills =
-                dps > 0 && Number.isFinite(killTime)
-                    ? Math.max(
-                          0,
-                          Math.min(
-                              Math.floor(seconds / killTime),
-                              Math.floor(respawnLimit),
-                              survivalLimit,
-                              resourceLimit
-                          )
-                      )
-                    : 0,
-            damage = Math.floor(kills * averageHP),
+            combat = simulateOfflineCombat({
+                duration: elapsed,
+                killLimit: Math.max(0, Math.floor(respawnLimit)),
+                attackInterval: effectiveAttackRate,
+                travelTime: 2500,
+                attacksPerKill,
+                damagePerAttack: damagePerHit,
+                targetHitPoints: averageHP,
+                enemyAttackInterval: averageAttackRate,
+                enemyDamage: mobDamagePerAttack,
+                lifeStealPerAttack,
+                regenerationPerSecond: guardRegen,
+                hitPoints: snapshot.hitPoints,
+                maxHitPoints: snapshot.maxHitPoints,
+                resourceType: snapshot.resourceType,
+                resourceCount: snapshot.resourceCount,
+                mana: snapshot.mana,
+                maxMana: snapshot.maxMana ?? this.mana.getMaxMana(),
+                resourcePerAttack: Math.max(0, snapshot.resourcePerAttack),
+                healingItems,
+                shouldHeal: (hitPoints, used) =>
+                    evaluateOfflineGambit({
+                        ...snapshot!,
+                        hitPoints,
+                        mobs,
+                        healingItems: healingItems.map((item, index) => ({
+                            ...item,
+                            count: item.count - used[index]
+                        }))
+                    })?.action.type === 'USE_POTION_OR_HEAL'
+            }),
+            { kills, deaths, attacks, healingUsed, hitPoints, mana, damage: rawDamage } = combat,
+            damage = Math.floor(rawDamage),
             experience = damage * this.world.getExperiencePerHit(),
             previousLevel = this.skills.getCombatLevel();
 
-        if (damage > 0) this.handleExperience(damage);
+        if (damage > 0) this.handleExperience(damage, true);
 
-        let consumedAttacks = kills * attacksPerKill;
-        if (snapshot.resourceType === 'mana')
-            this.mana.decrement(consumedAttacks * snapshot.resourcePerAttack);
-        else if (snapshot.resourceType === 'arrows')
-            this.equipment.decrementArrows(consumedAttacks);
+        this.mana.setMana(mana);
+        if (snapshot.resourceType === 'arrows' && attacks > 0)
+            this.equipment.decrementArrows(attacks * snapshot.resourcePerAttack);
 
-        let healingHitPoints = 0,
-            healingMana = 0,
-            missingHealing =
-                usesHealing && kills > 0 && damageTakenPerKill > 0
-                    ? Math.max(
-                          0,
-                          kills * (damageTakenPerKill - lifeStealPerKill) -
-                              snapshot.hitPoints -
-                              guardRegen * elapsed
-                      )
-                    : 0,
-            missingMana =
-                usesHealing && snapshot.resourceType === 'mana' && snapshot.resourcePerAttack > 0
-                    ? Math.max(
-                          0,
-                          consumedAttacks * snapshot.resourcePerAttack - snapshot.resourceCount
-                      )
-                    : 0;
+        for (let [index, item] of healingItems.entries())
+            if (healingUsed[index] > 0) this.inventory.remove(item.index, healingUsed[index]);
 
-        for (let item of healingItems) {
-            let used = 0;
-            while (
-                used < item.count &&
-                (missingHealing > 0 || missingMana > 0) &&
-                (item.hitPoints > 0 || item.mana > 0)
-            ) {
-                if (missingHealing > 0 && item.hitPoints > 0) {
-                    missingHealing = Math.max(0, missingHealing - item.hitPoints);
-                    healingHitPoints += item.hitPoints;
-                }
-                if (missingMana > 0 && item.mana > 0) {
-                    missingMana = Math.max(0, missingMana - item.mana);
-                    healingMana += item.mana;
-                }
-                used++;
-            }
+        this.hitPoints.setHitPoints(
+            (hitPoints / snapshot.maxHitPoints) * this.hitPoints.getMaxHitPoints()
+        );
 
-            if (used > 0) this.inventory.remove(item.index, used);
-        }
-
-        if (healingHitPoints > 0) this.hitPoints.increment(healingHitPoints);
-        if (healingMana > 0) this.mana.increment(healingMana);
-        if (damageTakenPerKill > 0 && kills > 0)
-            this.hitPoints.decrement(
-                Math.max(0, kills * (damageTakenPerKill - lifeStealPerKill) - guardRegen * elapsed)
-            );
-
-        let result = this.applyOfflineDrops(snapshot, kills, elapsed),
+        let result = this.applyOfflineDrops({ ...snapshot, mobs }, kills, elapsed),
             reason =
-                kills === 0
+                deaths > 0
+                    ? 'A caçada terminou após a morte.'
+                    : kills === 0
                     ? dps <= 0
                         ? 'Dano efetivo insuficiente para continuar.'
                         : 'A caçada não encontrou capacidade ou recursos suficientes.'
-                    : kills < Math.floor(seconds / killTime)
+                    : kills < Math.floor(seconds / baseKillTime)
                     ? 'A caçada foi limitada pela população ou pelos recursos.'
                     : 'A simulação atingiu o limite de tempo disponível.';
 
@@ -1579,12 +1753,18 @@ export default class Player extends Character {
             duration: elapsed,
             eclipseDurationMs,
             kills,
+            deaths,
             experience,
             levelsGained: Math.max(0, this.skills.getCombatLevel() - previousLevel),
             lootCollected: result.collected,
             lootOverflow: result.overflow,
             portadorKills: result.portadorKills,
             legendaryAnnouncements: result.announcements,
+            retainedDrops: result.retainedDrops,
+            ...(result.superiorGear === undefined ? {} : { superiorGear: result.superiorGear }),
+            ...(result.superiorGearComparisonIncomplete
+                ? { superiorGearComparisonIncomplete: true }
+                : {}),
             reason
         };
 
@@ -1604,8 +1784,19 @@ export default class Player extends Character {
         overflow: number;
         portadorKills: number;
         announcements: string[];
+        retainedDrops: string[];
+        superiorGear?: string[];
+        superiorGearComparisonIncomplete?: boolean;
     } {
-        if (kills < 1) return { collected: 0, overflow: 0, portadorKills: 0, announcements: [] };
+        if (kills < 1)
+            return {
+                collected: 0,
+                overflow: 0,
+                portadorKills: 0,
+                announcements: [],
+                retainedDrops: [],
+                superiorGear: []
+            };
 
         let randomState = snapshot.seed || 1,
             random = (maximum: number): number => {
@@ -1621,7 +1812,14 @@ export default class Player extends Character {
             pendingDrops: LootDrop[] = [],
             population = snapshot.mobs.reduce((total, mob) => total + mob.count, 0);
         if (population < 1)
-            return { collected: 0, overflow: 0, portadorKills: 0, announcements: [] };
+            return {
+                collected: 0,
+                overflow: 0,
+                portadorKills: 0,
+                announcements: [],
+                retainedDrops: [],
+                superiorGear: []
+            };
 
         for (let kill = 0; kill < kills; kill++) {
             let target = random(population),
@@ -1701,10 +1899,7 @@ export default class Player extends Character {
             }),
             loot = recycleDrops([...pendingDrops, ...economy.drops], {
                 rarities: this.autoRecycleRarities
-            }),
-            aggregated = new globalThis.Map<string, number>(),
-            collected = 0,
-            overflow = 0;
+            });
 
         this.regionKillCounts[String(snapshot.region)] = economy.regionKillCount;
         this.weaponMastery = awardWeaponMastery(
@@ -1713,21 +1908,49 @@ export default class Player extends Character {
             kills
         );
 
-        for (let drop of [...loot.kept, ...loot.recycled, ...economy.recycled])
-            aggregated.set(drop.key, (aggregated.get(drop.key) || 0) + drop.count);
-
-        for (let [key, count] of aggregated) {
-            let added = this.inventory.add(new Item(key, -1, -1, false, count));
-            if (added > 0) this.statistics.addDrop(key, added);
-            collected += added;
-            overflow += Math.max(0, count - added);
-        }
+        let acquiredGear = new globalThis.Map<string, Item>(),
+            { collected, overflow, retainedDrops } = collectOfflineDrops(
+                loot.kept,
+                [...loot.recycled, ...economy.recycled],
+                (key, count) => {
+                    let item = new Item(key, -1, -1, false, count),
+                        added = this.inventory.add(item);
+                    if (added > 0) {
+                        this.statistics.addDrop(key, added);
+                        if (item.exists && item.isEquippable()) acquiredGear.set(key, item);
+                    }
+                    return added;
+                }
+            ),
+            gearComparisons = retainedDrops.flatMap((key) => {
+                let item = acquiredGear.get(key),
+                    slot = item?.getEquipmentType();
+                if (!item || slot === undefined) return [];
+                let equipped = this.equipment.get(slot);
+                return [
+                    {
+                        key,
+                        candidate: { template: rawItems[key], instance: item.equipmentInstance },
+                        equipped: equipped.isEmpty()
+                            ? undefined
+                            : {
+                                  template: rawItems[equipped.key],
+                                  instance: equipped.equipmentInstance
+                              }
+                    }
+                ];
+            }),
+            { superiorGear, superiorGearComparisonIncomplete } =
+                summarizeSuperiorOfflineGear(gearComparisons);
 
         return {
             collected,
             overflow,
             portadorKills: economy.portadorKills,
-            announcements: economy.announcements
+            announcements: economy.announcements,
+            retainedDrops,
+            superiorGear,
+            superiorGearComparisonIncomplete
         };
     }
 
@@ -1946,7 +2169,7 @@ export default class Player extends Character {
      * @param damage The amount of damage the player dealt.
      */
 
-    public handleExperience(damage: number): void {
+    public handleExperience(damage: number, attackWasPaid = false): void {
         // Ignore invalid damage values.
         if (damage < 1) return;
 
@@ -1958,7 +2181,7 @@ export default class Player extends Character {
          * We make the experience half of what it would normally be.
          */
 
-        if (!this.hasManaForAttack()) experience = Math.floor(experience / 2);
+        if (!attackWasPaid && !this.hasManaForAttack()) experience = Math.floor(experience / 2);
 
         /**
          * Since there are four combat skills, we evenly distribute the experience between them.

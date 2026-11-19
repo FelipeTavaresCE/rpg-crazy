@@ -6,7 +6,7 @@ import log from '@kaetram/common/util/log';
 
 import type { Modules } from '@kaetram/common/network';
 import type { SlotData } from '@kaetram/common/types/slot';
-import type { ContainerItem, Enchantments } from '@kaetram/common/types/item';
+import type { ContainerItem, Enchantments, EquipmentInstance } from '@kaetram/common/types/item';
 
 interface SerializedContainer {
     slots: SlotData[];
@@ -18,12 +18,14 @@ type RemoveCallback = (
     key: string,
     count: number,
     enchantments: Enchantments,
-    drop?: boolean
+    drop?: boolean,
+    equipmentInstance?: EquipmentInstance
 ) => void;
 type NotifyCallback = (message: string) => void;
 
 export default abstract class Container {
     protected slots: Slot[] = [];
+    private overflow: Item[] = [];
 
     protected stackSize?: number;
 
@@ -47,16 +49,49 @@ export default abstract class Container {
      */
 
     public load(items: ContainerItem[]): void {
+        let overflow: Item[] = [];
         for (let item of items) {
             // Create a new item instance so that the item's data is created.
             if (!item.key) continue;
 
             if (item.count < 1) item.count = 1;
 
-            this.slots[item.index].update(this.getItem(item), this.stackSize);
+            let loaded = this.getItem(item),
+                count = loaded.equipmentInstance ? item.count : 1;
+            loaded.legacyEquipment = !!loaded.equipmentInstance && !item.equipmentInstance;
+
+            if (item.index >= 0 && item.index < this.size)
+                this.slots[item.index].update(loaded, this.stackSize);
+            else overflow.push(loaded);
+
+            // Older banks could stack non-stackable equipment. Preserve every item.
+            for (let i = 1; i < count; i++)
+                overflow.push(new Item(item.key, -1, -1, true, 1, item.enchantments));
         }
 
+        this.overflow = overflow;
+        this.promoteOverflow(false);
         this.loadCallback?.();
+    }
+
+    private promoteOverflow(notify = true): void {
+        while (this.overflow.length > 0) {
+            let slot = this.getEmptySlot();
+            if (!slot) break;
+            slot.update(this.overflow.shift()!, this.stackSize);
+            if (notify) this.addCallback?.(slot);
+        }
+    }
+
+    public forEachEquipmentInstance(
+        callback: (key: string, instance: EquipmentInstance, legacy: boolean) => void
+    ): void {
+        for (let slot of this.slots)
+            if (slot.equipmentInstance)
+                callback(slot.key, slot.equipmentInstance, slot.legacyEquipment);
+        for (let item of this.overflow)
+            if (item.equipmentInstance)
+                callback(item.key, item.equipmentInstance, item.legacyEquipment);
     }
 
     /**
@@ -106,6 +141,16 @@ export default abstract class Container {
             if (total < itemCount) {
                 // Subtract the total from the item count
                 itemCopy.count = itemCount - total;
+                if (itemCopy.equipmentInstance)
+                    itemCopy = new Item(
+                        item.key,
+                        item.x,
+                        item.y,
+                        item.dropped,
+                        itemCopy.count,
+                        item.enchantments,
+                        item.owner
+                    );
 
                 // Add the item to the slot, and store the amount added
                 let amount = this.add(itemCopy);
@@ -141,7 +186,16 @@ export default abstract class Container {
         if (count < slot.count) slot.remove(count);
         else slot.clear();
 
-        this.removeCallback?.(slot, serializedSlot.key, count, serializedSlot.enchantments, drop);
+        this.removeCallback?.(
+            slot,
+            serializedSlot.key,
+            count,
+            serializedSlot.enchantments,
+            drop,
+            serializedSlot.equipmentInstance
+        );
+
+        if (this.overflow.length > 0) queueMicrotask(() => this.promoteOverflow());
 
         return serializedSlot;
     }
@@ -248,7 +302,10 @@ export default abstract class Container {
             if (!toEmpty) {
                 toItem = toContainer.getItem(toSlot);
                 toStackSize = toContainer.stackSize || toItem.maxStackSize;
-                isSameItem = fromItem.key === toItem.key;
+                isSameItem =
+                    fromItem.key === toItem.key &&
+                    !fromItem.equipmentInstance &&
+                    !toItem.equipmentInstance;
 
                 let fromFull = fromItem.count > (toContainer.stackSize || fromItem.maxStackSize),
                     toFull = toItem.count > (this.stackSize || toItem.maxStackSize);
@@ -312,7 +369,18 @@ export default abstract class Container {
      */
 
     public getItem(slot: Slot | SlotData | ContainerItem): Item {
-        return new Item(slot.key, -1, -1, true, slot.count, slot.enchantments);
+        let item = new Item(
+            slot.key,
+            -1,
+            -1,
+            true,
+            slot.count,
+            slot.enchantments,
+            '',
+            slot.equipmentInstance
+        );
+        if (slot instanceof Slot) item.legacyEquipment = slot.legacyEquipment;
+        return item;
     }
 
     /**
@@ -339,6 +407,8 @@ export default abstract class Container {
                 (slot) =>
                     // If the slot's key matches the item's key
                     slot.key === item.key &&
+                    !item.equipmentInstance &&
+                    !slot.equipmentInstance &&
                     // And the slot's count is less than the item's max stack size or we're ignoring the max stack size.
                     slot.count < stackSize &&
                     // And the item is not enchanted.
@@ -444,6 +514,16 @@ export default abstract class Container {
         let slots: SlotData[] = [];
 
         for (let slot of this.slots) slots.push(slot.serialize(clientInfo));
+
+        if (!clientInfo)
+            for (let [index, item] of this.overflow.entries())
+                slots.push({
+                    index: this.size + index,
+                    key: item.key,
+                    count: 1,
+                    enchantments: item.enchantments,
+                    equipmentInstance: item.equipmentInstance
+                });
 
         return { slots };
     }

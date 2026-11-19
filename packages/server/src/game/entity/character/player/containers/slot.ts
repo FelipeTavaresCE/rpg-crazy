@@ -4,12 +4,14 @@ import log from '@kaetram/common/util/log';
 
 import type Item from '../../../objects/item';
 import type { SlotData } from '@kaetram/common/types/slot';
-import type { Bonuses, Enchantments, Stats } from '@kaetram/common/types/item';
+import type { Bonuses, Enchantments, EquipmentInstance, Stats } from '@kaetram/common/types/item';
 
 export default class Slot {
     public edible = false;
     public interactable = false;
     public equippable = false;
+    public equipmentInstance?: EquipmentInstance;
+    public legacyEquipment = false;
 
     public name = '';
     public description = '';
@@ -39,8 +41,10 @@ export default class Slot {
             return log.info(`Item doesn't exist: ${item.key}, deleting from existence.`);
 
         this.key = item.key;
-        this.count = Math.min(item.count, stackSize);
+        this.count = Math.min(item.count, item.equipmentInstance ? 1 : stackSize);
         this.enchantments = item.enchantments;
+        this.equipmentInstance = item.equipmentInstance;
+        this.legacyEquipment = item.legacyEquipment;
 
         this.edible = item.edible;
         this.interactable = item.interactable;
@@ -52,7 +56,7 @@ export default class Slot {
         this.defenseStats = item.defenseStats;
         this.bonuses = item.bonuses;
 
-        this.maxStackSize = stackSize;
+        this.maxStackSize = item.equipmentInstance ? 1 : stackSize;
 
         if (this.count < 1) log.error('Updating slot with count less than 1:', item.key);
 
@@ -94,6 +98,8 @@ export default class Slot {
         this.key = '';
         this.count = -1;
         this.enchantments = {};
+        this.equipmentInstance = undefined;
+        this.legacyEquipment = false;
 
         this.edible = false;
         this.interactable = false;
@@ -158,6 +164,7 @@ export default class Slot {
             count: this.count,
             enchantments: this.enchantments
         };
+        if (this.equipmentInstance) data.equipmentInstance = this.equipmentInstance;
 
         if (clientInfo) {
             data.name = this.name;
