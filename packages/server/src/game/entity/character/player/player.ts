@@ -23,6 +23,7 @@ import {
     evaluateOfflineGambit,
     simulateOfflineLoot
 } from '../../../../../../../src/engine/offline-simulator';
+import { getEclipseOverlapDuration } from '../../../../../../../src/engine/world-cycle';
 import {
     calculateCombatDamage,
     getSkillGemEffect,
@@ -1373,11 +1374,13 @@ export default class Player extends Character {
                     : undefined,
             usesHealing = gambit?.action.type === 'USE_POTION_OR_HEAL',
             passiveBonuses = calculatePassiveBonuses(snapshot.unlockedPassiveNodes || []),
+            eclipseDurationMs = getEclipseOverlapDuration(snapshot.startedAt, elapsed),
+            eclipseMultiplier = elapsed > 0 ? 1 + (0.3 * eclipseDurationMs) / elapsed : 1,
             average = (select: (mob: OfflineHuntMob) => number): number =>
                 mobs.reduce((total, mob) => total + select(mob) * mob.count, 0) / population,
-            averageHP = average((mob) => mob.hitPoints),
+            averageHP = average((mob) => mob.hitPoints) * eclipseMultiplier,
             averageDefense = average((mob) => mob.defense),
-            averageAttack = average((mob) => mob.attack),
+            averageAttack = average((mob) => mob.attack) * eclipseMultiplier,
             averageMobLevel = average((mob) => mob.level),
             averageAttackRate = Math.max(
                 100,
@@ -1574,6 +1577,7 @@ export default class Player extends Character {
 
         this.autoHuntReport = {
             duration: elapsed,
+            eclipseDurationMs,
             kills,
             experience,
             levelsGained: Math.max(0, this.skills.getCombatLevel() - previousLevel),

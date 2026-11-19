@@ -11,7 +11,8 @@ export default class Item extends Entity {
     public constructor(
         instance: string,
         public count: number = 1,
-        public enchantments: Enchantments = {}
+        public enchantments: Enchantments = {},
+        public key = ''
     ) {
         super(instance, Modules.EntityType.Item);
     }

@@ -218,7 +218,7 @@ export default class EntitiesController {
      */
 
     private createItem(info: EntityData): Item {
-        return new Item(info.instance, info.count, info.enchantments);
+        return new Item(info.instance, info.count, info.enchantments, info.key);
     }
 
     /**
@@ -232,6 +232,7 @@ export default class EntitiesController {
         let mob = new Mob(info.instance, this.game);
 
         mob.setHitPoints(info.hitPoints!, info.maxHitPoints);
+        mob.portador = info.portador ?? false;
 
         // Apply the mob-specific properties
         mob.attackRange = info.attackRange!;

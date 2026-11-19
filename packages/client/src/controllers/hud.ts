@@ -66,11 +66,16 @@ export default class HUDController {
     public showOfflineReport(report: OfflineHuntReport): void {
         let duration = Math.floor(report.duration / 1000),
             hours = Math.floor(duration / 3600),
-            minutes = Math.floor((duration % 3600) / 60);
+            minutes = Math.floor((duration % 3600) / 60),
+            eclipseMinutes = Math.floor((report.eclipseDurationMs || 0) / 60_000),
+            eclipseHours = Math.floor(eclipseMinutes / 60);
 
         this.offlineReport.querySelector(
             '.offline-report-time'
         )!.textContent = `${hours}h ${minutes}min`;
+        this.offlineReport.querySelector(
+            '.offline-report-eclipse-time'
+        )!.textContent = `${eclipseHours}h ${eclipseMinutes % 60}min`;
         this.offlineReport.querySelector('.offline-report-kills')!.textContent = `${report.kills}`;
         this.offlineReport.querySelector(
             '.offline-report-experience'

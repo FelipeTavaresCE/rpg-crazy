@@ -3,6 +3,9 @@ import { DEFAULT_ZOOM } from './camera';
 import Utils from '../utils/util';
 import Character from '../entity/character/character';
 import { isMobile, isTablet } from '../utils/detect';
+import { getLightingState } from '../../../../src/engine/lighting-system';
+import { sortEntitiesByDepth } from '../../../../src/engine/grid-system';
+import { getItemRarity } from '../../../../src/systems/loot-and-economy';
 
 import { Modules, Opcodes } from '@kaetram/common/network';
 import { DarkMask, Vec2, Lamp, Lighting } from 'illuminated';
@@ -15,14 +18,16 @@ import type Canvas from './canvas';
 import type Camera from './camera';
 import type Splat from './infos/splat';
 import type WebGL from './webgl/webgl';
+import type Mob from '../entity/character/mob/mob';
+import type Item from '../entity/objects/item';
 import type Entity from '../entity/entity';
 import type Sprite from '../entity/sprite';
-import type Item from '../entity/objects/item';
 import type Player from '../entity/character/player/player';
 import type Tree from '../entity/objects/resource/impl/tree';
 import type Grids from '../map/grids';
 import type { LampData } from '@kaetram/common/types/item';
 import type { ClientTile } from '@kaetram/common/types/map';
+import type { DynamicLight, DynamicLightSource } from '../../../../src/engine/lighting-system';
 import type { SerializedLight } from '@kaetram/common/network/impl/overlay';
 
 interface Light extends Lamp {
@@ -127,6 +132,8 @@ export default class Renderer {
 
     // Lighting
     protected lightings: { [instance: string]: RendererLighting } = {};
+    private cycleLightIds = new Set<string>();
+    private darkMaskColour = 'rgba(0, 0, 0, 0.84)';
     protected darkMask: DarkMask = new DarkMask({
         lights: [],
         color: 'rgba(0, 0, 0, 0.84)'
@@ -305,13 +312,21 @@ export default class Renderer {
      */
 
     private drawOverlays(): void {
-        // Overlay image cold not be found.
-        if (!this.game.overlays.hasOverlay()) return;
+        let lighting = getLightingState(Date.now(), this.getDynamicLightSources()),
+            hasOverlay = this.game.overlays.hasOverlay();
 
-        let image = this.game.overlays.get();
+        this.syncCycleLights(lighting.lights);
 
-        // Draw only if there is an overlay image.
-        if (image) this.overlayContext.drawImage(image, 0, 0, this.canvasWidth, this.canvasHeight);
+        if (!hasOverlay && lighting.phase !== 'eclipse') return;
+
+        if (hasOverlay) {
+            let image = this.game.overlays.get();
+            if (image)
+                this.overlayContext.drawImage(image, 0, 0, this.canvasWidth, this.canvasHeight);
+        }
+
+        this.darkMask.color =
+            lighting.phase === 'eclipse' ? lighting.ambientColour : this.darkMaskColour;
 
         this.overlayContext.globalCompositeOperation = 'lighter';
 
@@ -322,7 +337,79 @@ export default class Renderer {
         this.overlayContext.globalCompositeOperation = 'source-over';
 
         this.darkMask.compute(this.overlay.width, this.overlay.height);
+        this.overlayContext.globalCompositeOperation =
+            lighting.phase === 'eclipse' ? lighting.blendMode : 'source-over';
         this.darkMask.render(this.overlayContext);
+        this.overlayContext.globalCompositeOperation = 'source-over';
+    }
+
+    private getDynamicLightSources(): DynamicLightSource[] {
+        let sources: DynamicLightSource[] = [];
+
+        for (let entity of Object.values(this.game.entities.getAll()))
+            if (entity.isItem()) {
+                let rarity = getItemRarity((entity as Item).key);
+
+                if (rarity === 'rare' || rarity === 'epic' || rarity === 'legendary')
+                    sources.push({
+                        id: entity.instance,
+                        kind: 'rare-drop',
+                        x: entity.gridX,
+                        y: entity.gridY
+                    });
+            } else if (entity.isMob() && (entity as Mob).portador)
+                sources.push({
+                    id: entity.instance,
+                    kind: 'portador',
+                    x: entity.gridX,
+                    y: entity.gridY
+                });
+
+        return sources;
+    }
+
+    private syncCycleLights(lights: readonly DynamicLight[]): void {
+        let nextIds = new Set<string>();
+
+        for (let light of lights) {
+            let instance = `eclipse:${light.kind}:${light.id}`,
+                current = this.lightings[instance];
+
+            nextIds.add(instance);
+
+            if (!current) {
+                this.addLight({
+                    instance,
+                    x: light.x,
+                    y: light.y,
+                    colour: light.colour,
+                    diffuse: 0.5,
+                    distance: light.radius,
+                    flickerSpeed: 1,
+                    flickerIntensity: -1
+                });
+                continue;
+            }
+
+            current.light.gridX = light.x;
+            current.light.gridY = light.y;
+            current.light.originalX = light.x * this.tileSize + this.tileSize / 2;
+            current.light.originalY = light.y * this.tileSize + this.tileSize / 2;
+        }
+
+        for (let instance of this.cycleLightIds) {
+            if (nextIds.has(instance)) continue;
+
+            let current = this.lightings[instance];
+            if (current)
+                this.darkMask.lights = this.darkMask.lights.filter(
+                    (light) => light !== current.light
+                );
+
+            delete this.lightings[instance];
+        }
+
+        this.cycleLightIds = nextIds;
     }
 
     /**
@@ -1388,6 +1475,7 @@ export default class Renderer {
      */
 
     public updateDarkMask(color = 'rgba(0, 0, 0, 0.5)'): void {
+        this.darkMaskColour = color;
         this.darkMask.color = color;
     }
 
@@ -1522,6 +1610,7 @@ export default class Renderer {
     public removeAllLights(): void {
         this.lightings = {};
         this.darkMask.lights = [];
+        this.cycleLightIds.clear();
 
         this.addPlayerLight();
     }
@@ -1838,14 +1927,18 @@ export default class Renderer {
      */
 
     protected forEachVisibleEntity(callback: (entity: Entity) => void): void {
+        let visibleEntities = new Set<Entity>();
+
         this.camera.forEachVisiblePosition(
             (x, y) => {
                 for (let entity in this.grids.renderingGrid[y][x])
-                    callback(this.grids.renderingGrid[y][x][entity]);
+                    visibleEntities.add(this.grids.renderingGrid[y][x][entity]);
             },
             3,
             6
         );
+
+        for (let entity of sortEntitiesByDepth([...visibleEntities])) callback(entity);
     }
 
     /**
