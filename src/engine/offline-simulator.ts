@@ -59,6 +59,7 @@ export function simulateOfflineCombat(input: OfflineCombatInput): OfflineCombatR
     let hitPoints = Math.max(0, Math.min(input.maxHitPoints, input.hitPoints)),
         resourceCount = Math.max(0, input.resourceCount),
         mana = Math.max(0, Math.min(input.maxMana, input.mana)),
+        duration = Math.min(input.duration, MAX_OFFLINE_DURATION_MS),
         healingUsed = input.healingItems.map(() => 0),
         kills = 0,
         deaths = 0,
@@ -105,12 +106,16 @@ export function simulateOfflineCombat(input: OfflineCombatInput): OfflineCombatR
     )
         return { kills, deaths, hitPoints, resourceCount, mana, attacks, damage, healingUsed };
 
-    let duration = Math.min(input.duration, MAX_OFFLINE_DURATION_MS),
-        respawn = (): void => {
+    let respawn = (): void => {
             deaths++;
             hitPoints = input.maxHitPoints;
             mana = input.maxMana;
             if (input.resourceType === 'mana') resourceCount = mana;
+            time = Math.min(duration, time + 15_000);
+            fightAttacks = 0;
+            fightDamage = 0;
+            nextAttack = time + input.travelTime + input.attackInterval;
+            nextEnemyAttack = time + input.travelTime + input.enemyAttackInterval;
         },
         heal = (needsMana: boolean): boolean => {
             if (!input.shouldHeal(hitPoints, healingUsed)) return false;
@@ -127,10 +132,7 @@ export function simulateOfflineCombat(input: OfflineCombatInput): OfflineCombatR
             return true;
         };
 
-    if (hitPoints <= 0) {
-        respawn();
-        return { kills, deaths, hitPoints, resourceCount, mana, attacks, damage, healingUsed };
-    }
+    if (hitPoints <= 0) respawn();
 
     while (kills < input.killLimit) {
         let nextTime = Math.min(nextAttack, nextEnemyAttack, duration);
@@ -181,11 +183,8 @@ export function simulateOfflineCombat(input: OfflineCombatInput): OfflineCombatR
             } else nextAttack = time + input.attackInterval;
         } else {
             hitPoints = Math.max(0, hitPoints - input.enemyDamage);
-            if (hitPoints <= 0) {
-                respawn();
-                break;
-            }
-            nextEnemyAttack = time + input.enemyAttackInterval;
+            if (hitPoints <= 0) respawn();
+            else nextEnemyAttack = time + input.enemyAttackInterval;
         }
         if (time >= duration && Math.min(nextAttack, nextEnemyAttack) > time) break;
     }
@@ -213,7 +212,12 @@ export interface OfflineLootResult extends EconomyResult {
 }
 
 export interface OfflineGear {
-    template?: { attack?: number; defense?: number };
+    template?: {
+        attack?: number;
+        defense?: number;
+        attackStats?: Readonly<Record<string, unknown>>;
+        defenseStats?: Readonly<Record<string, unknown>>;
+    };
     instance?: Pick<GearScoreInput, 'refineLevel' | 'socketedCards' | 'socketedGems'>;
 }
 
@@ -227,7 +231,10 @@ export function isSuperiorOfflineGear(
             let { template, instance } = gear;
             if (
                 !template ||
-                (template.attack === undefined && template.defense === undefined) ||
+                (template.attack === undefined &&
+                    template.defense === undefined &&
+                    template.attackStats === undefined &&
+                    template.defenseStats === undefined) ||
                 (template.attack !== undefined && !Number.isFinite(template.attack)) ||
                 (template.defense !== undefined && !Number.isFinite(template.defense)) ||
                 !instance ||
@@ -241,8 +248,10 @@ export function isSuperiorOfflineGear(
                 return;
 
             return {
-                baseAttack: template.attack ?? 0,
-                baseDefense: template.defense ?? 0,
+                baseAttack: template.attack,
+                baseDefense: template.defense,
+                attackStats: template.attackStats,
+                defenseStats: template.defenseStats,
                 refineLevel: instance.refineLevel,
                 socketedCards: instance.socketedCards,
                 socketedGems: instance.socketedGems

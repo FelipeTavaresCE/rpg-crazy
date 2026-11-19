@@ -18,6 +18,10 @@ export interface AutoHuntEquipment {
     gems: string[];
     refineLevel: number;
     isScarred: boolean;
+    operations: {
+        forge: { available: boolean; reason?: string };
+        repair: { available: boolean; reason?: string };
+    };
 }
 
 export type GambitCondition =
@@ -114,7 +118,9 @@ export interface OfflineHuntSnapshot {
 }
 
 export interface AutoHuntPacketData {
-    action: 'configure' | 'state' | 'report' | 'unlock-passive';
+    action: 'configure' | 'state' | 'report' | 'unlock-passive' | 'equipment-operation';
+    equipmentId?: string;
+    operation?: 'forge' | 'repair';
     enabled?: boolean;
     rules?: AutoHuntRule[];
     gambits?: GambitRule[];
