@@ -2,6 +2,13 @@ import Hit from './hit';
 
 import Formulas from '../../../../info/formulas';
 import { getPvEDamage } from '../../../../info/pve-formula';
+import {
+    calculateCombatDamage,
+    getWeaponSkillCooldown,
+    getWeaponSkillArea
+} from '../../../../../../../src/engine/combat-engine';
+import engineMonsterData from '../../../../../../../src/data/monsters.json';
+import { calculatePassiveBonuses } from '../../../../../../../src/systems/passive-tree-system';
 
 import log from '@kaetram/common/util/log';
 import { Modules, Opcodes } from '@kaetram/common/network';
@@ -220,14 +227,23 @@ export default class Combat {
         // Only archery based weapons check for arrows.
         if (!this.character.isMagic() && !this.character.hasArrows()) return this.stop();
 
-        let projectile = this.character.world.entities.spawnProjectile(
-            this.character,
-            this.character.target!,
-            hit
-        );
+        let projectileCount =
+            this.character.isPlayer() && (this.character as Player).autoHuntEnabled
+                ? (this.character as Player).autoHuntProjectileCount
+                : 1;
 
-        // Spawn the projectile in the game client.
-        this.character.sendToRegions(new SpawnPacket(projectile));
+        for (let index = 0; index < projectileCount; index++) {
+            let projectile = this.character.world.entities.spawnProjectile(
+                this.character,
+                this.character.target!,
+                hit
+            );
+
+            // Spawn the projectile in the game client.
+            this.character.sendToRegions(new SpawnPacket(projectile));
+        }
+
+        if (this.character.isPlayer()) (this.character as Player).autoHuntProjectileCount = 1;
     }
 
     /**
@@ -255,18 +271,36 @@ export default class Combat {
                     ? defenseStats.stab
                     : player.getAttackStyle() === Modules.AttackStyle.Crush
                     ? defenseStats.crush
-                    : defenseStats.slash;
-
-            return new Hit(
-                damageType,
-                getPvEDamage({
+                    : defenseStats.slash,
+                mobFamily = (engineMonsterData as { [key: string]: { family: string } })[mob.key]
+                    ?.family,
+                skillId = player.autoHuntPendingSkill,
+                passiveBonuses = calculatePassiveBonuses(player.unlockedPassiveNodes),
+                damage = calculateCombatDamage({
                     attackBonus: player.getDamageBonus(),
                     attribute: player.getSkillDamageLevel(),
                     defense,
                     attackerLevel: player.level,
+                    cardBonus: player.getCardBonusAgainst(mobFamily),
+                    passiveBonuses,
+                    posture: player.autoHuntPosture,
                     critical: damageType === Modules.Hits.Critical,
-                    posture: player.autoHuntPosture
-                }),
+                    skillId,
+                    projectile: player.isRanged(),
+                    socketedGems: player.getSocketedSkillGems()
+                });
+
+            player.autoHuntPendingSkill = undefined;
+            player.autoHuntProjectileCount = damage.projectileCount;
+            if (skillId) {
+                player.autoHuntSkillCooldowns[skillId] =
+                    Date.now() + getWeaponSkillCooldown(skillId);
+                player.aoe = Math.max(player.aoe, getWeaponSkillArea(skillId) ?? 0);
+            }
+
+            return new Hit(
+                damageType,
+                damage.damagePerProjectile,
                 player.isRanged(),
                 player.getAoE(),
                 player.isMagic(),
@@ -282,12 +316,14 @@ export default class Combat {
         ) {
             let player = this.character.target as Player,
                 defenseStats = player.getDefenseStats(),
+                passiveDefense = calculatePassiveBonuses(player.unlockedPassiveNodes).defense,
                 defense =
                     (this.character.isMagic()
                         ? defenseStats.magic
                         : this.character.isRanged()
                         ? defenseStats.archery
                         : defenseStats.slash) *
+                    (1 + passiveDefense) *
                     (player.autoHuntPosture === 'guard'
                         ? 1.4
                         : player.autoHuntPosture === 'advance'

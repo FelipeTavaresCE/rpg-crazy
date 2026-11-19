@@ -5,7 +5,7 @@ import { Packets } from '@kaetram/common/network';
 import type { Opcodes, Modules } from '@kaetram/common/network';
 import type { EntityData } from '@kaetram/common/types/entity';
 import type { EquipmentData } from '@kaetram/common/network/impl/equipment';
-import type { AutoHuntRule, OfflineHuntReport } from './autohunt';
+import type { AutoHuntRule, GambitRule, OfflineHuntReport } from './autohunt';
 
 export interface PlayerPacketData {
     username: string;
@@ -27,6 +27,7 @@ export interface PlayerData extends EntityData {
     autoHuntReport?: OfflineHuntReport;
     autoHuntEnabled?: boolean;
     autoHuntRules?: AutoHuntRule[];
+    gambitRules?: GambitRule[];
 
     equipments: EquipmentData[];
 }

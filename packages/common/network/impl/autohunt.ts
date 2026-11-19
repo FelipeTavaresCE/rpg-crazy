@@ -6,6 +6,27 @@ export type AutoHuntRule =
     | 'balance-high'
     | 'disabled';
 export type AutoHuntPosture = 'balance' | 'advance' | 'guard';
+export type CombatStance = 'Equilíbrio' | 'Avanço' | 'Guarda';
+
+export type GambitCondition =
+    | { type: 'HP_BELOW_PERCENT'; percent: number }
+    | { type: 'TARGET_IS_PORTADOR_OR_BOSS' }
+    | { type: 'ADJACENT_ENEMIES_GTE'; count: number }
+    | { type: 'ALWAYS' };
+
+export type GambitAction =
+    | { type: 'USE_POTION_OR_HEAL' }
+    | { type: 'SWITCH_STANCE'; stance: CombatStance }
+    | { type: 'USE_ULTIMATE' }
+    | { type: 'USE_AOE' }
+    | { type: 'ATTACK_NEAREST' };
+
+export interface GambitRule {
+    id: string;
+    condition: GambitCondition;
+    action: GambitAction;
+    enabled?: boolean;
+}
 
 export interface OfflineHuntReport {
     duration: number;
@@ -29,6 +50,7 @@ export interface OfflineHuntMob {
     respawnDelay: number;
     count: number;
     family?: string;
+    boss?: boolean;
 }
 
 export interface OfflineHuntHealingItem {
@@ -61,14 +83,24 @@ export interface OfflineHuntSnapshot {
     regionKillCount?: number;
     posture: AutoHuntPosture;
     rules: AutoHuntRule[];
+    gambitRules?: GambitRule[];
+    unlockedPassiveNodes?: string[];
+    passiveBonus?: number;
+    passiveDefenseBonus?: number;
+    passiveAttackSpeedBonus?: number;
+    passiveMaxHitPointsBonus?: number;
+    socketedGems?: string[];
+    adjacentEnemies?: number;
     healingItems: OfflineHuntHealingItem[];
     mobs: OfflineHuntMob[];
 }
 
 export interface AutoHuntPacketData {
-    action: 'configure' | 'state' | 'report';
+    action: 'configure' | 'state' | 'report' | 'unlock-passive';
     enabled?: boolean;
     rules?: AutoHuntRule[];
+    gambits?: GambitRule[];
+    nodeId?: string;
     posture?: AutoHuntPosture;
     report?: OfflineHuntReport;
     target?: string;
