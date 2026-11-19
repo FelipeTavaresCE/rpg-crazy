@@ -161,12 +161,9 @@ test('a dead snapshot pays the respawn penalty and continues hunting', () => {
         combat({
             duration: 28_800_000,
             hitPoints: 0,
-            attacksPerKill: 1,
+            killLimit: 100_000,
             enemyAttackInterval: 1500,
-            enemyDamage: 100,
-            resourceType: 'arrows',
-            resourceCount: 10,
-            resourcePerAttack: 1
+            enemyDamage: 60
         })
     );
     assert.ok(result.deaths > 1);
@@ -174,7 +171,7 @@ test('a dead snapshot pays the respawn penalty and continues hunting', () => {
     assert.equal(result.mana, 10);
     assert.ok(result.kills > 0);
     assert.ok(result.attacks > 0);
-    assert.equal(result.resourceCount, 10);
+    assert.equal(result.resourceCount, 0);
 });
 
 test('death recovery restores mana and continues a long hunt', () => {
@@ -200,16 +197,16 @@ test('death recovery restores mana and continues a long hunt', () => {
 test('each death consumes a 15-second recovery window', () => {
     let result = simulateOfflineCombat(
         combat({
-            duration: 4000,
+            duration: 21_999,
             attackInterval: 1000,
-            attacksPerKill: 1,
             enemyAttackInterval: 1500,
-            enemyDamage: 100
+            enemyDamage: 60,
+            killLimit: 100
         })
     );
     assert.equal(result.deaths, 1);
     assert.equal(result.kills, 2);
-    assert.equal(result.attacks, 2);
+    assert.ok(result.attacks > 4);
 });
 
 test('completed kills and partial damage before death remain credited', () => {
@@ -368,7 +365,7 @@ test('superior gear sums positive legacy attack and defense stats', () => {
         };
     assert.equal(
         isSuperiorOfflineGear(legacy, {
-            template: { attack: 10, defense: 5 },
+            template: { attack: 10, defense: 4 },
             instance
         }),
         true

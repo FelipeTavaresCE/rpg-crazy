@@ -1110,7 +1110,7 @@ export default class Player extends Character {
         equipmentId: string,
         operation: 'forge' | 'repair'
     ): Promise<void> {
-        let creator = this.database.creator;
+        let { creator } = this.database;
         if (!this.authenticated || this.isGuest || !creator)
             return this.notify('Equipment crafting is unavailable.');
 
@@ -1369,7 +1369,8 @@ export default class Player extends Character {
             materialCounts: { [key: string]: number } = {};
         this.inventory.forEachSlot((slot) => {
             if (slot.key)
-                materialCounts[slot.key] = (materialCounts[slot.key] || 0) + Math.max(0, slot.count);
+                materialCounts[slot.key] =
+                    (materialCounts[slot.key] || 0) + Math.max(0, slot.count);
         });
         let operations = (instance: EquipmentInstance): AutoHuntEquipment['operations'] => {
             let targetLevel = instance.refineLevel + 1,
@@ -1392,11 +1393,11 @@ export default class Player extends Character {
                 },
                 repair: {
                     available: instance.isScarred && materialCounts.purified_relic >= 1,
-                    ...(!instance.isScarred
-                        ? { reason: 'Equipment is not scarred.' }
-                        : materialCounts.purified_relic < 1
-                        ? { reason: 'Not enough purified relics.' }
-                        : {})
+                    ...(instance.isScarred
+                        ? materialCounts.purified_relic < 1
+                            ? { reason: 'Not enough purified relics.' }
+                            : {}
+                        : { reason: 'Equipment is not scarred.' })
                 }
             };
         };

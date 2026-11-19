@@ -1,18 +1,18 @@
+import { refineItem, repairScar } from '../../../../src/systems/refine-system';
+
 import log from '@kaetram/common/util/log';
 import Utils from '@kaetram/common/util/utils';
 import config from '@kaetram/common/config';
-import { refineItem, repairScar } from '../../../../src/systems/refine-system';
 
 import type Player from '@kaetram/server/src/game/entity/character/player/player';
 import type { Collection, Db, MongoClient } from 'mongodb';
 import type { Modules } from '@kaetram/common/network';
 import type { GuildData } from '@kaetram/common/network/impl/guild';
 import type { SerializedEffects } from '@kaetram/common/types/status';
-import type { EquipmentInstance } from '@kaetram/common/types/item';
 import type { SlotData } from '@kaetram/common/types/slot';
 import type { EquipmentData } from '@kaetram/common/network/impl/equipment';
-import type { AutoHuntPacketData } from '@kaetram/common/network/impl/autohunt';
 import type {
+    AutoHuntPacketData,
     AutoHuntRule,
     GambitRule,
     OfflineHuntReport,
@@ -238,169 +238,178 @@ export default class Creator {
         } finally {
             await session.endSession();
         }
+    }
 
-        public async performEquipmentOperation(
-            username: string,
-            equipmentId: string,
-            operation: NonNullable<AutoHuntPacketData['operation']>
-        ): Promise<EquipmentOperationResult> {
-            let session = this.client.startSession(),
-                roll = Math.random();
+    public async performEquipmentOperation(
+        username: string,
+        equipmentId: string,
+        operation: NonNullable<AutoHuntPacketData['operation']>
+    ): Promise<EquipmentOperationResult> {
+        let session = this.client.startSession(),
+            roll = Math.random();
 
-            try {
-                return (
-                    (await session.withTransaction(async () => {
-                        let inventoryDocument = (await this.database
-                                .collection('player_inventory')
-                                .findOne({ username }, { session })) as InventoryDocument | null,
-                            equipmentDocument = (await this.database
-                                .collection('player_equipment')
-                                .findOne({ username }, { session })) as EquipmentDocument | null;
-                        if (!inventoryDocument || !Array.isArray(inventoryDocument.slots))
-                            return { applied: false, message: 'Inventory could not be loaded.' };
+        try {
+            return (
+                (await session.withTransaction(async () => {
+                    let inventoryDocument = (await this.database
+                            .collection('player_inventory')
+                            .findOne({ username }, { session })) as InventoryDocument | null,
+                        equipmentDocument = (await this.database
+                            .collection('player_equipment')
+                            .findOne({ username }, { session })) as EquipmentDocument | null;
+                    if (!inventoryDocument || !Array.isArray(inventoryDocument.slots))
+                        return { applied: false, message: 'Inventory could not be loaded.' };
 
-                        let inventory = inventoryDocument.slots.map((slot) => ({
-                                ...slot,
-                                ...(slot.equipmentInstance
-                                    ? {
-                                          equipmentInstance: {
-                                              ...slot.equipmentInstance,
-                                              socketedCards: [...slot.equipmentInstance.socketedCards],
-                                              socketedGems: [...slot.equipmentInstance.socketedGems]
-                                          }
+                    let inventory = inventoryDocument.slots.map((slot) => ({
+                            ...slot,
+                            ...(slot.equipmentInstance
+                                ? {
+                                      equipmentInstance: {
+                                          ...slot.equipmentInstance,
+                                          socketedCards: [...slot.equipmentInstance.socketedCards],
+                                          socketedGems: [...slot.equipmentInstance.socketedGems]
                                       }
-                                    : {})
-                            })),
-                            equipment = (equipmentDocument?.equipments ?? []).map((item) => ({
-                                ...item,
-                                ...(item.equipmentInstance
-                                    ? {
-                                          equipmentInstance: {
-                                              ...item.equipmentInstance,
-                                              socketedCards: [...item.equipmentInstance.socketedCards],
-                                              socketedGems: [...item.equipmentInstance.socketedGems]
-                                          }
+                                  }
+                                : {})
+                        })),
+                        equipment = (equipmentDocument?.equipments ?? []).map((item) => ({
+                            ...item,
+                            ...(item.equipmentInstance
+                                ? {
+                                      equipmentInstance: {
+                                          ...item.equipmentInstance,
+                                          socketedCards: [...item.equipmentInstance.socketedCards],
+                                          socketedGems: [...item.equipmentInstance.socketedGems]
                                       }
-                                    : {})
-                            })),
-                            inventoryMatches = inventory.filter(
-                                (slot) => slot.equipmentInstance?.uid === equipmentId
-                            ),
-                            equipmentMatches = equipment.filter(
-                                (item) => item.equipmentInstance?.uid === equipmentId
-                            );
-                        if (inventoryMatches.length + equipmentMatches.length !== 1)
-                            return { applied: false, message: 'Equipment instance was not found.' };
+                                  }
+                                : {})
+                        })),
+                        inventoryMatches = inventory.filter(
+                            (slot) => slot.equipmentInstance?.uid === equipmentId
+                        ),
+                        equipmentMatches = equipment.filter(
+                            (item) => item.equipmentInstance?.uid === equipmentId
+                        );
+                    if (inventoryMatches.length + equipmentMatches.length !== 1)
+                        return { applied: false, message: 'Equipment instance was not found.' };
 
-                        let item: EquipmentInstance =
-                                inventoryMatches[0]?.equipmentInstance ??
-                                equipmentMatches[0]?.equipmentInstance!,
-                            count = (key: string): number =>
-                                inventory.reduce(
-                                    (total, slot) =>
-                                        total + (slot.key === key ? Math.max(0, slot.count) : 0),
-                                    0
-                                ),
-                            consume = (key: string, amount: number): boolean => {
-                                let remaining = amount;
-                                for (let slot of inventory) {
-                                    if (slot.key !== key || remaining <= 0) continue;
-                                    let taken = Math.min(Math.max(0, slot.count), remaining);
-                                    remaining -= taken;
-                                    if (taken === slot.count) {
-                                        slot.key = '';
-                                        slot.count = -1;
-                                        slot.enchantments = {};
-                                        delete slot.equipmentInstance;
-                                    } else slot.count -= taken;
-                                }
-                                return remaining === 0;
-                            },
-                            message: string;
-
-                        if (operation === 'forge') {
-                            let materials = {
-                                    auroraJewels: count('aurora_jewel'),
-                                    temperFragments: count('temper_fragments')
-                                },
-                                result = refineItem(
-                                    { refineLevel: item.refineLevel, isScarred: item.isScarred },
-                                    materials,
-                                    roll
-                                ),
-                                targetLevel = item.refineLevel + 1;
-                            if (
-                                result.chance === 0 ||
-                                result.materials.auroraJewels !== materials.auroraJewels - 1 ||
-                                result.materials.temperFragments !==
-                                    materials.temperFragments - targetLevel
-                            )
-                                return {
-                                    applied: false,
-                                    message:
-                                        item.isScarred
-                                            ? 'Scarred equipment must be repaired before forging.'
-                                            : 'Not enough forging materials or no refinement remains.'
-                                };
-                            if (!consume('aurora_jewel', 1) || !consume('temper_fragments', targetLevel))
-                                return { applied: false, message: 'Forging materials changed.' };
-
-                            Object.assign(item, result.item);
-                            message = result.success
-                                ? `Forged successfully to +${result.item.refineLevel}.`
-                                : result.item.isScarred
-                                ? 'Forging failed; the equipment was scarred.'
-                                : 'Forging failed; materials were consumed.';
-                        } else {
-                            let purifiedRelics = count('purified_relic'),
-                                result = repairScar(
-                                    { refineLevel: item.refineLevel, isScarred: item.isScarred },
-                                    purifiedRelics
-                                );
-                            if (result.purifiedRelics !== purifiedRelics - 1)
-                                return {
-                                    applied: false,
-                                    message: item.isScarred
-                                        ? 'Not enough purified relics.'
-                                        : 'This equipment does not need scar repair.'
-                                };
-                            if (!consume('purified_relic', 1))
-                                return { applied: false, message: 'Repair materials changed.' };
-
-                            Object.assign(item, result.item);
-                            message = 'Scar repaired.';
-                        }
-
-                        let inventoryUpdate = await this.database
-                                .collection('player_inventory')
-                                .updateOne({ username }, { $set: { slots: inventory } }, { session }),
-                            equipmentUpdate =
-                                inventoryMatches.length > 0
-                                    ? undefined
-                                    : await this.database
-                                          .collection('player_equipment')
-                                          .updateOne(
-                                              { username },
-                                              { $set: { equipments: equipment } },
-                                              { session }
-                                          );
-                        if (
-                            inventoryUpdate.matchedCount !== 1 ||
-                            (equipmentUpdate && equipmentUpdate.matchedCount !== 1)
-                        )
-                            throw new Error('Equipment operation could not be saved.');
-
+                    let item =
+                        inventoryMatches.length > 0
+                            ? inventoryMatches[0].equipmentInstance
+                            : equipmentMatches[0].equipmentInstance;
+                    if (!item)
                         return {
-                            applied: true,
-                            message,
-                            inventory,
-                            ...(equipmentDocument?.equipments ? { equipment } : {})
+                            applied: false,
+                            message: 'Equipment instance could not be loaded.'
                         };
-                    })) || { applied: false, message: 'Equipment operation was not applied.' }
-                );
-            } finally {
-                await session.endSession();
-            }
+
+                    let count = (key: string): number =>
+                            inventory.reduce(
+                                (total, slot) =>
+                                    total + (slot.key === key ? Math.max(0, slot.count) : 0),
+                                0
+                            ),
+                        consume = (key: string, amount: number): boolean => {
+                            let remaining = amount;
+                            for (let slot of inventory) {
+                                if (slot.key !== key || remaining <= 0) continue;
+                                let taken = Math.min(Math.max(0, slot.count), remaining);
+                                remaining -= taken;
+                                if (taken === slot.count) {
+                                    slot.key = '';
+                                    slot.count = -1;
+                                    slot.enchantments = {};
+                                    delete slot.equipmentInstance;
+                                } else slot.count -= taken;
+                            }
+                            return remaining === 0;
+                        },
+                        message: string;
+
+                    if (operation === 'forge') {
+                        let materials = {
+                                auroraJewels: count('aurora_jewel'),
+                                temperFragments: count('temper_fragments')
+                            },
+                            result = refineItem(
+                                { refineLevel: item.refineLevel, isScarred: item.isScarred },
+                                materials,
+                                roll
+                            ),
+                            targetLevel = item.refineLevel + 1;
+                        if (
+                            result.chance === 0 ||
+                            result.materials.auroraJewels !== materials.auroraJewels - 1 ||
+                            result.materials.temperFragments !==
+                                materials.temperFragments - targetLevel
+                        )
+                            return {
+                                applied: false,
+                                message: item.isScarred
+                                    ? 'Scarred equipment must be repaired before forging.'
+                                    : 'Not enough forging materials or no refinement remains.'
+                            };
+                        if (
+                            !consume('aurora_jewel', 1) ||
+                            !consume('temper_fragments', targetLevel)
+                        )
+                            return { applied: false, message: 'Forging materials changed.' };
+
+                        Object.assign(item, result.item);
+                        message = result.success
+                            ? `Forged successfully to +${result.item.refineLevel}.`
+                            : result.item.isScarred
+                            ? 'Forging failed; the equipment was scarred.'
+                            : 'Forging failed; materials were consumed.';
+                    } else {
+                        let purifiedRelics = count('purified_relic'),
+                            result = repairScar(
+                                { refineLevel: item.refineLevel, isScarred: item.isScarred },
+                                purifiedRelics
+                            );
+                        if (result.purifiedRelics !== purifiedRelics - 1)
+                            return {
+                                applied: false,
+                                message: item.isScarred
+                                    ? 'Not enough purified relics.'
+                                    : 'This equipment does not need scar repair.'
+                            };
+                        if (!consume('purified_relic', 1))
+                            return { applied: false, message: 'Repair materials changed.' };
+
+                        Object.assign(item, result.item);
+                        message = 'Scar repaired.';
+                    }
+
+                    let inventoryUpdate = await this.database
+                            .collection('player_inventory')
+                            .updateOne({ username }, { $set: { slots: inventory } }, { session }),
+                        equipmentUpdate =
+                            inventoryMatches.length > 0
+                                ? undefined
+                                : await this.database
+                                      .collection('player_equipment')
+                                      .updateOne(
+                                          { username },
+                                          { $set: { equipments: equipment } },
+                                          { session }
+                                      );
+                    if (
+                        inventoryUpdate.matchedCount !== 1 ||
+                        (equipmentUpdate && equipmentUpdate.matchedCount !== 1)
+                    )
+                        throw new Error('Equipment operation could not be saved.');
+
+                    return {
+                        applied: true,
+                        message,
+                        inventory,
+                        ...(equipmentDocument?.equipments ? { equipment } : {})
+                    };
+                })) || { applied: false, message: 'Equipment operation was not applied.' }
+            );
+        } finally {
+            await session.endSession();
         }
     }
 

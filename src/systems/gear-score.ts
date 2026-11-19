@@ -1,8 +1,16 @@
+export interface GearScoreStats {
+    crush?: unknown;
+    slash?: unknown;
+    stab?: unknown;
+    archery?: unknown;
+    magic?: unknown;
+}
+
 export interface GearScoreInput {
     baseAttack?: number;
     baseDefense?: number;
-    attackStats?: Readonly<Record<string, unknown>>;
-    defenseStats?: Readonly<Record<string, unknown>>;
+    attackStats?: Readonly<GearScoreStats>;
+    defenseStats?: Readonly<GearScoreStats>;
     refineLevel: number;
     socketedCards: readonly string[];
     socketedGems: readonly string[];
@@ -11,13 +19,13 @@ export interface GearScoreInput {
 export function gearScore(item: GearScoreInput): number {
     let effectiveAttack =
             item.baseAttack ??
-            Object.values(item.attackStats ?? {}).reduce(
+            Object.values(item.attackStats ?? {}).reduce<number>(
                 (sum, value) => sum + (typeof value === 'number' && value > 0 ? value : 0),
                 0
             ),
         effectiveDefense =
             item.baseDefense ??
-            Object.values(item.defenseStats ?? {}).reduce(
+            Object.values(item.defenseStats ?? {}).reduce<number>(
                 (sum, value) => sum + (typeof value === 'number' && value > 0 ? value : 0),
                 0
             );

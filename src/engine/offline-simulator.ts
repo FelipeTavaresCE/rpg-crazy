@@ -13,7 +13,7 @@ import {
 } from '../systems/gambit-ai';
 
 import type { AutoRecycleSettings, EconomyResult, LootDrop } from '../systems/loot-and-economy';
-import type { GearScoreInput } from '../systems/gear-score';
+import type { GearScoreInput, GearScoreStats } from '../systems/gear-score';
 import type { GambitDecision } from '../systems/gambit-ai';
 import type {
     OfflineHuntHealingItem,
@@ -215,8 +215,8 @@ export interface OfflineGear {
     template?: {
         attack?: number;
         defense?: number;
-        attackStats?: Readonly<Record<string, unknown>>;
-        defenseStats?: Readonly<Record<string, unknown>>;
+        attackStats?: Readonly<GearScoreStats>;
+        defenseStats?: Readonly<GearScoreStats>;
     };
     instance?: Pick<GearScoreInput, 'refineLevel' | 'socketedCards' | 'socketedGems'>;
 }
