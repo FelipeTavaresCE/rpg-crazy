@@ -13,7 +13,7 @@ import type {
 
 export type ClassicHUDDock = 'left' | 'right' | 'bottom';
 export type ClassicHUDRarity = AutoRecycleRarity;
-export type ClassicHUDOperation = 'forge' | 'refine' | 'repair';
+export type ClassicHUDOperation = 'forge' | 'repair';
 
 /**
  * An adapter-friendly equipment view, not an EquipmentInstance. Populate only fields
@@ -68,7 +68,7 @@ type RuleDraft = {
 
 const stances: CombatStance[] = ['Equilíbrio', 'Avanço', 'Guarda'],
     rarities: ClassicHUDRarity[] = [...AUTO_RECYCLE_RARITIES],
-    operations: ClassicHUDOperation[] = ['forge', 'refine', 'repair'],
+    operations: ClassicHUDOperation[] = ['forge', 'repair'],
     conditionOptions: Array<[GambitCondition['type'], string]> = [
         ['HP_BELOW_PERCENT', 'HP below %'],
         ['TARGET_IS_PORTADOR_OR_BOSS', 'Target is Portador or boss'],

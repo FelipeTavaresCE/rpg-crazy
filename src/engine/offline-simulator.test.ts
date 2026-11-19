@@ -156,25 +156,25 @@ test('regeneration is per second and mana is restored on actual death', () => {
     assert.equal(result.resourceCount, 10);
 });
 
-test('a dead snapshot respawns once without earning kills or consuming resources', () => {
+test('a dead snapshot pays the respawn penalty and continues hunting', () => {
     let result = simulateOfflineCombat(
         combat({
             duration: 28_800_000,
             hitPoints: 0,
-            resourceType: 'arrows',
-            resourceCount: 10,
-            resourcePerAttack: 1
+            killLimit: 100_000,
+            enemyAttackInterval: 1500,
+            enemyDamage: 60
         })
     );
-    assert.equal(result.deaths, 1);
+    assert.ok(result.deaths > 1);
     assert.equal(result.hitPoints, 100);
     assert.equal(result.mana, 10);
-    assert.equal(result.kills, 0);
-    assert.equal(result.attacks, 0);
-    assert.equal(result.resourceCount, 10);
+    assert.ok(result.kills > 0);
+    assert.ok(result.attacks > 0);
+    assert.equal(result.resourceCount, 0);
 });
 
-test('death ends a long hunt without repeatedly restoring mana or awarding kills', () => {
+test('death recovery restores mana and continues a long hunt', () => {
     let result = simulateOfflineCombat(
         combat({
             duration: 28_800_000,
@@ -188,17 +188,31 @@ test('death ends a long hunt without repeatedly restoring mana or awarding kills
             resourcePerAttack: 1
         })
     );
-    assert.equal(result.deaths, 1);
-    assert.equal(result.attacks, 1);
-    assert.equal(result.kills, 0);
-    assert.equal(result.damage, 50);
+    assert.ok(result.deaths > 1);
+    assert.ok(result.attacks > 1);
+    assert.ok(result.damage > 50);
     assert.equal(result.mana, 1);
+});
+
+test('each death consumes a 15-second recovery window', () => {
+    let result = simulateOfflineCombat(
+        combat({
+            duration: 21_999,
+            attackInterval: 1000,
+            enemyAttackInterval: 1500,
+            enemyDamage: 60,
+            killLimit: 100
+        })
+    );
+    assert.equal(result.deaths, 1);
+    assert.equal(result.kills, 2);
+    assert.ok(result.attacks > 4);
 });
 
 test('completed kills and partial damage before death remain credited', () => {
     let result = simulateOfflineCombat(
         combat({
-            duration: 10_000,
+            duration: 4000,
             enemyAttackInterval: 1500,
             enemyDamage: 60
         })
@@ -337,5 +351,30 @@ test('superior gear scores actual single-scalar templates', () => {
             { template: items.mosswood_armor, instance }
         ),
         true
+    );
+});
+
+test('superior gear sums positive legacy attack and defense stats', () => {
+    let instance = { refineLevel: 0, socketedCards: [], socketedGems: [] },
+        legacy = {
+            template: {
+                attackStats: { crush: 4, slash: 6, stab: -3, magic: 'invalid' },
+                defenseStats: { crush: 2, slash: 3, archery: 0 }
+            },
+            instance
+        };
+    assert.equal(
+        isSuperiorOfflineGear(legacy, {
+            template: { attack: 10, defense: 4 },
+            instance
+        }),
+        true
+    );
+    assert.equal(
+        isSuperiorOfflineGear(
+            { ...legacy, template: { ...legacy.template, attack: 8, defense: 4 } },
+            { template: { attack: 20, defense: 0 }, instance }
+        ),
+        false
     );
 });

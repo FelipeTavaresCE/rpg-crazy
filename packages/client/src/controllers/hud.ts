@@ -54,6 +54,12 @@ export default class HUDController {
                         this.input.sendAutoHunt({
                             action: 'configure',
                             autoRecycleRarities: rarities
+                        }),
+                    onEquipmentOperation: (operation, equipmentId) =>
+                        this.input.sendAutoHunt({
+                            action: 'equipment-operation',
+                            operation,
+                            equipmentId
                         })
                 }
             }
@@ -95,14 +101,7 @@ export default class HUDController {
                 : {}),
             ...(data.equipment
                 ? {
-                      equipment: data.equipment.map((item) => ({
-                          ...item,
-                          operations: {
-                              forge: { available: false, reason: 'Forge is not available.' },
-                              refine: { available: false, reason: 'Refinement is not available.' },
-                              repair: { available: false, reason: 'Repair is not available.' }
-                          }
-                      }))
+                      equipment: data.equipment
                   }
                 : {})
         };

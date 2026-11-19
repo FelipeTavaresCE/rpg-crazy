@@ -35,6 +35,7 @@ import {
     getWeaponSkillCooldown,
     getWeaponSkillArea
 } from '../../../../../../../src/engine/combat-engine';
+import { REFINE_CHANCES } from '../../../../../../../src/systems/refine-system';
 import { calculateCardAndRelicBonuses } from '../../../../../../../src/systems/card-and-relic-system';
 import {
     calculatePassiveBonuses,
@@ -990,6 +991,17 @@ export default class Player extends Character {
     public configureAutoHunt(data: AutoHuntPacketData): void {
         if (!this.ready || !data || typeof data !== 'object') return;
 
+        if (data.action === 'equipment-operation') {
+            if (
+                typeof data.equipmentId !== 'string' ||
+                data.equipmentId.length > 128 ||
+                (data.operation !== 'forge' && data.operation !== 'repair')
+            )
+                return this.sendAutoHuntState();
+            void this.performEquipmentOperation(data.equipmentId, data.operation);
+            return;
+        }
+
         if (data.action === 'unlock-passive') {
             if (data.nodeId) this.unlockPassiveNode(data.nodeId);
             return;
@@ -1092,6 +1104,33 @@ export default class Player extends Character {
 
     public getAvailablePassivePoints(): number {
         return Math.max(0, getPassivePoints(this.level) - this.unlockedPassiveNodes.length);
+    }
+
+    private async performEquipmentOperation(
+        equipmentId: string,
+        operation: 'forge' | 'repair'
+    ): Promise<void> {
+        let { creator } = this.database;
+        if (!this.authenticated || this.isGuest || !creator)
+            return this.notify('Equipment crafting is unavailable.');
+
+        try {
+            let result = await creator.performEquipmentOperation(
+                this.username,
+                equipmentId,
+                operation
+            );
+            this.notify(result.message);
+            if (!result.applied || !result.inventory) return this.sendAutoHuntState();
+
+            this.inventory.load(result.inventory);
+            if (result.equipment) this.equipment.load(result.equipment);
+            this.queueAutoHuntState();
+        } catch (error) {
+            log.error(`Could not ${operation} equipment for ${this.username}.`, error);
+            this.notify('Equipment operation could not be saved.');
+            this.sendAutoHuntState();
+        }
     }
 
     public unlockPassiveNode(nodeId: string): boolean {
@@ -1326,7 +1365,42 @@ export default class Player extends Character {
     }
 
     public sendAutoHuntState(target?: string): void {
-        let equipment: AutoHuntEquipment[] = [];
+        let equipment: AutoHuntEquipment[] = [],
+            materialCounts: { [key: string]: number } = {};
+        this.inventory.forEachSlot((slot) => {
+            if (slot.key)
+                materialCounts[slot.key] =
+                    (materialCounts[slot.key] || 0) + Math.max(0, slot.count);
+        });
+        let operations = (instance: EquipmentInstance): AutoHuntEquipment['operations'] => {
+            let targetLevel = instance.refineLevel + 1,
+                chance = REFINE_CHANCES[targetLevel],
+                enoughForgeMaterials =
+                    materialCounts.aurora_jewel >= 1 &&
+                    materialCounts.temper_fragments >= targetLevel;
+            return {
+                forge: {
+                    available: !instance.isScarred && chance !== undefined && enoughForgeMaterials,
+                    ...(!instance.isScarred && chance !== undefined && enoughForgeMaterials
+                        ? {}
+                        : {
+                              reason: instance.isScarred
+                                  ? 'Repair scarred equipment before forging.'
+                                  : chance === undefined
+                                  ? 'No further refinement is available.'
+                                  : 'Not enough forging materials.'
+                          })
+                },
+                repair: {
+                    available: instance.isScarred && materialCounts.purified_relic >= 1,
+                    ...(instance.isScarred
+                        ? materialCounts.purified_relic < 1
+                            ? { reason: 'Not enough purified relics.' }
+                            : {}
+                        : { reason: 'Equipment is not scarred.' })
+                }
+            };
+        };
         this.equipment.forEachEquipment((item) => {
             let instance = item.equipmentInstance;
             if (!instance) return;
@@ -1337,7 +1411,8 @@ export default class Player extends Character {
                 cards: [...instance.socketedCards],
                 gems: [...instance.socketedGems],
                 refineLevel: instance.refineLevel,
-                isScarred: instance.isScarred
+                isScarred: instance.isScarred,
+                operations: operations(instance)
             });
         });
         this.inventory.forEachSlot((slot) => {
@@ -1350,7 +1425,8 @@ export default class Player extends Character {
                 cards: [...instance.socketedCards],
                 gems: [...instance.socketedGems],
                 refineLevel: instance.refineLevel,
-                isScarred: instance.isScarred
+                isScarred: instance.isScarred,
+                operations: operations(instance)
             });
         });
         this.send(
