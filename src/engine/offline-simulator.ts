@@ -1,5 +1,10 @@
 import { rollEconomyDrops, recycleDrops } from '../systems/loot-and-economy';
 import {
+    getEclipseOverlapDuration,
+    isEclipseAt as isWorldEclipseAt,
+    MAX_OFFLINE_DURATION_MS
+} from './world-cycle';
+import {
     DEFAULT_GAMBIT_RULES,
     evaluateGambitRules,
     sanitizeGambitRules
@@ -21,6 +26,7 @@ export interface OfflineLootInput {
 export interface OfflineLootResult extends EconomyResult {
     recycled: LootDrop[];
     announcements: string[];
+    eclipseDurationMs: number;
 }
 
 export function evaluateOfflineGambit(
@@ -59,10 +65,7 @@ export function evaluateOfflineGambit(
 }
 
 export function isEclipseAt(timestamp: number): boolean {
-    let cycleLength = 6 * 60 * 60 * 1000,
-        eclipseStart = 4 * 60 * 60 * 1000;
-
-    return ((timestamp % cycleLength) + cycleLength) % cycleLength >= eclipseStart;
+    return isWorldEclipseAt(timestamp);
 }
 
 export function simulateOfflineLoot(input: OfflineLootInput): OfflineLootResult {
@@ -77,14 +80,18 @@ export function simulateOfflineLoot(input: OfflineLootInput): OfflineLootResult 
         portadorKills = 0,
         regionKillCount = Math.max(0, Math.floor(input.regionKillCount)),
         kills = Math.max(0, Math.floor(input.kills)),
-        killInterval = kills > 0 ? Math.max(0, input.duration) / kills : 0;
+        duration = Number.isFinite(input.duration)
+            ? Math.min(MAX_OFFLINE_DURATION_MS, Math.max(0, input.duration))
+            : 0,
+        killInterval = kills > 0 ? duration / kills : 0,
+        eclipseDurationMs = getEclipseOverlapDuration(input.startedAt, duration);
 
     for (let kill = 0; kill < kills; kill++) {
         regionKillCount++;
         let result = rollEconomyDrops(
             random,
             regionKillCount,
-            isEclipseAt(input.startedAt + kill * killInterval)
+            isEclipseAt(input.startedAt + (kill + 0.5) * killInterval)
         );
         drops.push(...result.drops);
         portadorKills += result.portadorKills;
@@ -97,6 +104,7 @@ export function simulateOfflineLoot(input: OfflineLootInput): OfflineLootResult 
         recycled: recycled.recycled,
         portadorKills,
         regionKillCount,
-        announcements: drops.filter((drop) => drop.announceGlobally).map((drop) => drop.key)
+        announcements: drops.filter((drop) => drop.announceGlobally).map((drop) => drop.key),
+        eclipseDurationMs
     };
 }
