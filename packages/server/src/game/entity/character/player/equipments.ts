@@ -77,7 +77,18 @@ export default class Equipments {
             if (!equipment) continue;
             if (!info.key) continue; // Skip if the item is already null
 
-            equipment.update(new Item(info.key, -1, -1, true, info.count, info.enchantments));
+            let item = new Item(
+                info.key,
+                -1,
+                -1,
+                true,
+                info.count,
+                info.enchantments,
+                '',
+                info.equipmentInstance
+            );
+            item.legacyEquipment = !!item.equipmentInstance && !info.equipmentInstance;
+            equipment.update(item);
 
             // Only weapons have attack styles, so we update the last selected one.
             if (info.attackStyle) this.updateAttackStyle(info.attackStyle);
@@ -137,7 +148,16 @@ export default class Equipments {
         // If there is already an item equipped, we unequip it.
         if (!equipment.isEmpty())
             this.player.inventory.add(
-                new Item(equipment.key, -1, -1, false, equipment.count, equipment.enchantments)
+                new Item(
+                    equipment.key,
+                    -1,
+                    -1,
+                    false,
+                    equipment.count,
+                    equipment.enchantments,
+                    '',
+                    equipment.equipmentInstance
+                )
             );
 
         // Include the last attack style when we're equipping a weapon.
@@ -161,7 +181,16 @@ export default class Equipments {
 
         if (!equipment.key) return;
 
-        let item = new Item(equipment.key, -1, -1, false, equipment.count, equipment.enchantments),
+        let item = new Item(
+                equipment.key,
+                -1,
+                -1,
+                false,
+                equipment.count,
+                equipment.enchantments,
+                '',
+                equipment.equipmentInstance
+            ),
             count = this.player.inventory.add(item);
 
         // We stop here if the item cannot be added to the inventory.
@@ -397,6 +426,10 @@ export default class Equipments {
 
     public onLoaded(callback: () => void): void {
         this.loadCallback = callback;
+    }
+
+    public refresh(): void {
+        this.loadCallback?.();
     }
 
     /**

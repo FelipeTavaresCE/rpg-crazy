@@ -4,10 +4,17 @@ import { Packets } from '@kaetram/common/network';
 
 import type { Opcodes } from '@kaetram/common/network';
 import type { DefinePacket } from './utils';
+import type { EquipmentInstance } from '@kaetram/common/types/item';
 
 type Trade = DefinePacket<{
     [Opcodes.Trade.Request]: { instance?: string };
-    [Opcodes.Trade.Add]: { instance?: string; index: number; count?: number; key?: string };
+    [Opcodes.Trade.Add]: {
+        instance?: string;
+        index: number;
+        count?: number;
+        key?: string;
+        equipmentInstance?: EquipmentInstance;
+    };
     [Opcodes.Trade.Remove]: { instance?: string; index: number; count?: number };
     [Opcodes.Trade.Accept]: { message?: string };
     [Opcodes.Trade.Close]: { [key: string]: unknown };

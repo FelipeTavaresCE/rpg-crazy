@@ -31,7 +31,7 @@ import type Ability from './ability/ability';
 import type Equipment from './equipment/equipment';
 import type Areas from '../../../map/areas/areas';
 import type Light from '../../../globals/impl/light';
-import type { Enchantments } from '@kaetram/common/types/item';
+import type { Enchantments, EquipmentInstance } from '@kaetram/common/types/item';
 import type { ProcessedDoor } from '@kaetram/common/types/map';
 
 export default class Handler {
@@ -391,6 +391,7 @@ export default class Handler {
                 data: this.player.equipment.serialize(true)
             })
         );
+        this.player.queueAutoHuntState();
     }
 
     /**
@@ -407,6 +408,7 @@ export default class Handler {
 
         // Sync to nearby players.
         this.player.sync();
+        this.player.queueAutoHuntState();
     }
 
     /**
@@ -420,6 +422,7 @@ export default class Handler {
 
         // Sync to nearby players.
         this.player.sync();
+        this.player.queueAutoHuntState();
     }
 
     /**
@@ -470,8 +473,22 @@ export default class Handler {
      * @param count The amount of the item we are adding.
      */
 
-    private handleTradeAdd(instance: string, index: number, count: number, key: string): void {
-        this.player.send(new TradePacketPacket(Opcodes.Trade.Add, { instance, index, count, key }));
+    private handleTradeAdd(
+        instance: string,
+        index: number,
+        count: number,
+        key: string,
+        equipmentInstance?: EquipmentInstance
+    ): void {
+        this.player.send(
+            new TradePacketPacket(Opcodes.Trade.Add, {
+                instance,
+                index,
+                count,
+                key,
+                equipmentInstance
+            })
+        );
     }
 
     /**
@@ -505,6 +522,7 @@ export default class Handler {
                 data: this.player.inventory.serialize(true)
             })
         );
+        this.player.queueAutoHuntState();
     }
 
     /**
@@ -534,6 +552,7 @@ export default class Handler {
                 slot
             })
         );
+        this.player.queueAutoHuntState();
     }
 
     /**
@@ -550,11 +569,21 @@ export default class Handler {
         key: string,
         count: number,
         enchantments: Enchantments,
-        drop?: boolean
+        drop?: boolean,
+        equipmentInstance?: EquipmentInstance
     ): void {
         // Spawn the item in the world if drop is true, cheater accounts don't drop anything.
         if (drop && !this.player.isCheater() && !this.player.isHollowAdmin()) {
-            let item = new Item(key, this.player.x, this.player.y, true, count, enchantments);
+            let item = new Item(
+                key,
+                this.player.x,
+                this.player.y,
+                true,
+                count,
+                enchantments,
+                '',
+                equipmentInstance
+            );
 
             // Pets spawn an entity, and items spawn in the world.
             if (item.isPetItem()) {
@@ -572,6 +601,7 @@ export default class Handler {
                 slot: slot.serialize(true)
             })
         );
+        this.player.queueAutoHuntState();
     }
 
     /**

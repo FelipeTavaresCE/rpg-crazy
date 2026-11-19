@@ -1,4 +1,5 @@
 <div id="game-container">
+    <div id="classic-hud-mount"></div>
     <div id="border">
         <div id="canvas">
             <canvas id="background"></canvas>
@@ -476,8 +477,8 @@
             </details>
         </section>
 
-        <dialog id="offline-report">
-            <h2>Relatório de Retorno</h2>
+        <dialog id="offline-report" aria-labelledby="offline-report-title">
+            <h2 id="offline-report-title">Relatório de Retorno</h2>
             <h3>O que aconteceu</h3>
             <p>
                 Tempo caçado: <span class="offline-report-time"></span>
@@ -489,17 +490,26 @@
                 Monstros derrotados: <span class="offline-report-kills"></span>
             </p>
             <p>
+                Portadores abatidos: <span class="offline-report-portadores"></span>
+            </p>
+            <p>
                 Experiência recebida: <span class="offline-report-experience"></span>
             </p>
             <p>
                 Níveis ganhos: <span class="offline-report-levels"></span>
             </p>
+            <p>
+                Quedas: <span class="offline-report-deaths"></span>
+            </p>
             <h3>O que guardar</h3>
             <p class="offline-report-loot"></p>
+            <p class="offline-report-highlights"></p>
+            <p class="offline-report-gear"></p>
             <h3>O que melhorar</h3>
             <p class="offline-report-reason"></p>
+            <p class="offline-report-suggestion"></p>
             <h3>Próxima oportunidade</h3>
-            <p>Retome a caça em uma área PvE elegível.</p>
+            <p class="offline-report-opportunity"></p>
             <button class="offline-report-close" type="button">
                 Fechar
             </button>

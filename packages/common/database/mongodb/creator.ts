@@ -118,6 +118,27 @@ export default class Creator {
         }
     }
 
+    public async saveLegacyEquipmentMigration(player: Player): Promise<void> {
+        // Gear must reach disk before the legacy maps are cleared. A deterministic
+        // migration UID makes an interrupted sequence safe to replay at next login.
+        for (let [collection, data] of [
+            ['player_equipment', player.equipment.serialize()],
+            ['player_inventory', player.inventory.serialize()],
+            ['player_bank', player.bank.serialize()]
+        ] as const)
+            await this.database
+                .collection(collection)
+                .updateOne({ username: player.username }, { $set: data }, { upsert: true });
+
+        let result = await this.database
+            .collection('player_info')
+            .updateOne(
+                { username: player.username },
+                { $set: { socketedCards: player.socketedCards, socketedGems: player.socketedGems } }
+            );
+        if (result.matchedCount !== 1) throw new Error('Legacy socket migration player not found');
+    }
+
     public async saveOfflineHuntSettlement(
         player: Player,
         snapshot: OfflineHuntSnapshot
@@ -167,6 +188,13 @@ export default class Creator {
                         .updateOne(
                             { username: player.username },
                             { $set: player.equipment.serialize() },
+                            { upsert: true, session }
+                        );
+                    await this.database
+                        .collection('player_bank')
+                        .updateOne(
+                            { username: player.username },
+                            { $set: player.bank.serialize() },
                             { upsert: true, session }
                         );
                     await this.database

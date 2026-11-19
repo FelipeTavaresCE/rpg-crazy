@@ -11,11 +11,21 @@ export interface Light {
     inner?: LampData;
 }
 
+export interface EquipmentInstance {
+    uid: string;
+    itemId: string;
+    refineLevel: number;
+    isScarred: boolean;
+    socketedCards: string[];
+    socketedGems: string[];
+}
+
 export interface ContainerItem {
     index: number;
     key: string;
     count: number;
     enchantments: Enchantments;
+    equipmentInstance?: EquipmentInstance;
 }
 
 export interface Stats {

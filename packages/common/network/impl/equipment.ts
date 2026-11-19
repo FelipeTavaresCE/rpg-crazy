@@ -3,7 +3,7 @@ import Packet from '../packet';
 import { Packets } from '@kaetram/common/network';
 
 import type { Modules, Opcodes } from '@kaetram/common/network';
-import type { Bonuses, Enchantments, Light, Stats } from '../../types/item';
+import type { Bonuses, Enchantments, EquipmentInstance, Light, Stats } from '../../types/item';
 import type { DefinePacket } from './utils';
 
 export type EquipmentType = 'weapon' | 'armour' | 'pendant' | 'ring' | 'boots';
@@ -14,6 +14,7 @@ export interface EquipmentData {
     name?: string;
     count: number;
     enchantments: Enchantments;
+    equipmentInstance?: EquipmentInstance;
     attackRange?: number; // Specifically for weapon type.
     poisonous?: boolean;
     attackStats?: Stats;
