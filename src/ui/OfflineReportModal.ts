@@ -27,6 +27,10 @@ export default class OfflineReportModal {
         this.dialog
             .querySelector<HTMLButtonElement>('.offline-report-close')!
             .addEventListener('click', () => this.dialog.close());
+
+        // The global `dialog { display: flex }` style overrides the UA rule that hides closed
+        // dialogs, so visibility is driven by the `hidden` attribute as well.
+        this.dialog.addEventListener('close', () => (this.dialog.hidden = true));
     }
 
     public show(report: ReturnReport): void {
@@ -101,6 +105,7 @@ export default class OfflineReportModal {
                 ? `O mundo está em Eclipse. Aurora começa em ${remaining} min.`
                 : `O mundo está em Aurora. Eclipse começa em ${remaining} min.`
         );
+        this.dialog.hidden = false;
         if (!this.dialog.open) this.dialog.showModal();
     }
 
