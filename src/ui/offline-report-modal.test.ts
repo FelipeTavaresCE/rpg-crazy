@@ -9,6 +9,8 @@ test('modal distinguishes unavailable, partial and completed gear comparisons', 
     let elements = new Map<string, { textContent: string; addEventListener(): void }>(),
         dialog = {
             open: false,
+            hidden: true,
+            addEventListener: () => {},
             querySelector: (selector: string) => {
                 if (!elements.has(selector))
                     elements.set(selector, { textContent: '', addEventListener: () => {} });
