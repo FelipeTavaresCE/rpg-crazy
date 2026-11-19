@@ -43,6 +43,7 @@ export interface EntityData {
     level?: number;
     hiddenName?: boolean;
     orientation?: Modules.Orientation;
+    portador?: boolean;
 
     // Item data
     count?: number;

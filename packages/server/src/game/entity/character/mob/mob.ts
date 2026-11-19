@@ -49,6 +49,7 @@ export default class Mob extends Character {
     public chest!: Chest; // Used for mimics since they belong to a chest
 
     public boss = false;
+    public portador = false;
     public respawnable = true;
     public miniboss = false;
     public roaming = true; // Roaming is true by default
@@ -728,6 +729,7 @@ export default class Mob extends Character {
         data.hitPoints = this.hitPoints.getHitPoints();
         data.maxHitPoints = this.hitPoints.getMaxHitPoints();
         data.attackRange = this.attackRange;
+        data.portador = this.portador;
 
         // Include the display info in the packet if the player parameter is specified.
         if (player) data.displayInfo = this.getDisplayInfo(player);

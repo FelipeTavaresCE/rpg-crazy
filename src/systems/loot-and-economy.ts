@@ -41,6 +41,10 @@ export function isPortadorKill(regionKillCount: number): boolean {
     return regionKillCount > 0 && regionKillCount % 100 === 0;
 }
 
+export function getItemRarity(key: string): ItemRarity | undefined {
+    return itemData[key]?.rarity;
+}
+
 export function rollEconomyDrops(
     random: RandomSource,
     regionKillCount: number,
