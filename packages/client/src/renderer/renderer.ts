@@ -315,7 +315,8 @@ export default class Renderer {
 
         if (hasOverlay) {
             let image = this.game.overlays.get();
-            if (image) this.overlayContext.drawImage(image, 0, 0, this.canvasWidth, this.canvasHeight);
+            if (image)
+                this.overlayContext.drawImage(image, 0, 0, this.canvasWidth, this.canvasHeight);
         }
 
         this.darkMask.color =

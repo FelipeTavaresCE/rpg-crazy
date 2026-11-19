@@ -7,13 +7,13 @@ import rawData from '../../../../../data/mobs.json';
 import Spawns from '../../../../../data/spawns.json';
 import dropTables from '../../../../../data/tables.json';
 import PluginIndex from '../../../../../data/plugins/mobs';
+import { isEclipseAt } from '../../../../../../../src/engine/world-cycle';
 
 import log from '@kaetram/common/util/log';
 import Utils from '@kaetram/common/util/utils';
 import { Modules, Opcodes } from '@kaetram/common/network';
 import { HealPacket, MovementPacket, TeleportPacket } from '@kaetram/common/network/impl';
 import { SpecialEntityTypes } from '@kaetram/common/network/modules';
-import { isEclipseAt } from '../../../../../../../src/engine/world-cycle';
 
 import type Area from '../../../map/areas/area';
 import type Areas from '../../../map/areas/areas';

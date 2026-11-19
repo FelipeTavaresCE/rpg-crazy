@@ -28,9 +28,8 @@ export function getWorldCycleState(
         throw new RangeError('World cycle timestamps must be finite.');
 
     let cyclePosition = getCyclePosition(timestamp, epoch),
-        phase = cyclePosition < AURORA_DURATION_MS ? 'aurora' : 'eclipse',
-        phaseElapsed =
-            phase === 'aurora' ? cyclePosition : cyclePosition - AURORA_DURATION_MS,
+        phase: WorldPhase = cyclePosition < AURORA_DURATION_MS ? 'aurora' : 'eclipse',
+        phaseElapsed = phase === 'aurora' ? cyclePosition : cyclePosition - AURORA_DURATION_MS,
         phaseDuration = phase === 'aurora' ? AURORA_DURATION_MS : ECLIPSE_DURATION_MS;
 
     return {
@@ -51,7 +50,7 @@ export function getEclipseOverlapDuration(
     duration: number,
     epoch = WORLD_CYCLE_EPOCH
 ): number {
-    if (![startedAt, duration, epoch].every(Number.isFinite))
+    if (![startedAt, duration, epoch].every((value) => Number.isFinite(value)))
         throw new RangeError('Offline window timestamps must be finite.');
 
     let windowDuration = Math.min(MAX_OFFLINE_DURATION_MS, Math.max(0, duration));

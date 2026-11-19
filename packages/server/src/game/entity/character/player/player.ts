@@ -1375,8 +1375,7 @@ export default class Player extends Character {
             usesHealing = gambit?.action.type === 'USE_POTION_OR_HEAL',
             passiveBonuses = calculatePassiveBonuses(snapshot.unlockedPassiveNodes || []),
             eclipseDurationMs = getEclipseOverlapDuration(snapshot.startedAt, elapsed),
-            eclipseMultiplier =
-                elapsed > 0 ? 1 + (0.3 * eclipseDurationMs) / elapsed : 1,
+            eclipseMultiplier = elapsed > 0 ? 1 + (0.3 * eclipseDurationMs) / elapsed : 1,
             average = (select: (mob: OfflineHuntMob) => number): number =>
                 mobs.reduce((total, mob) => total + select(mob) * mob.count, 0) / population,
             averageHP = average((mob) => mob.hitPoints) * eclipseMultiplier,
