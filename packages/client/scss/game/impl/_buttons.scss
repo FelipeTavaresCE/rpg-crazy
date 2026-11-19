@@ -53,6 +53,10 @@
 }
 
 #offline-report {
+    &:not([open]) {
+        display: none;
+    }
+
     overflow: auto;
 
     box-sizing: border-box;
